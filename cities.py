@@ -271,3 +271,36 @@ def now_in_city(city_name: str) -> datetime:
         except Exception:
             pass
     return datetime.now()
+
+
+# --------------------------------------------------------------------------
+# ZIP code lookup -- lets a user type ANY real 5-digit ZIP for the selected
+# metro area, not just the handful of "featured" ones listed per city above.
+# --------------------------------------------------------------------------
+def is_valid_zip(zip_code) -> bool:
+    """True only for a plain 5-digit ZIP string. Deliberately type-strict --
+    this is the single choke point that keeps a non-string/non-ZIP value
+    (an int index, None, an empty string, etc.) from ever propagating into
+    a comparison or a lookup elsewhere in the app."""
+    return isinstance(zip_code, str) and zip_code.isdigit() and len(zip_code) == 5
+
+
+def lookup_neighborhood(city_name: str, zip_code: str) -> dict:
+    """Resolve a ZIP to a neighborhood name for the given city.
+
+    This app ships a small, curated list of real, well-known ZIPs per city
+    (see CITIES[...]["zips"]) with real neighborhood names. Typing in any
+    OTHER real 5-digit ZIP for that city's metro area is fully supported --
+    transit.py and air_quality.py both key their simulations off the exact
+    ZIP string you enter (see stable_seed usage) -- but this demo doesn't
+    ship a full ZIP-to-neighborhood geocoding database, so an unfeatured
+    ZIP gets an honest generic label rather than an invented neighborhood
+    name. Returns {"neighborhood": str, "known": bool}.
+    """
+    city_info = get_city(city_name)
+    if is_valid_zip(zip_code):
+        for z in city_info["zips"]:
+            if z["zip"] == zip_code:
+                return {"neighborhood": z["neighborhood"], "known": True}
+        return {"neighborhood": f"ZIP {zip_code} area", "known": False}
+    return {"neighborhood": "Unknown area", "known": False}

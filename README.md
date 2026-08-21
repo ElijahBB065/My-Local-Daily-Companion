@@ -1,32 +1,77 @@
 # 🧭 Local Daily Companion
 
-A bright, friendly Streamlit app with two tabs for everyday city life, plus
-personal features layered on top:
+A bright, friendly Streamlit app for everyday city life: a Home page, a
+Transit tab, an Air Quality tab, and several personal features layered on
+top:
 
+0. **🏠 Home page** — the default view on launch. Log in or sign up (both
+   entirely optional — every feature works as a guest) and see a
+   personalized "Welcome Back" dashboard with your saved city's instant
+   Daily Briefing, a quick transit-status chip, and an air-quality chip,
+   without re-entering anything.
 1. **🚌 Transit Accessibility & Delay Tracker** — next-arrival boards, a
    station-to-station **trip planner** (pick an origin and destination and
    get an estimated travel time, active delay, and accessibility status for
-   both stations), delay patterns, elevator/escalator status, and
-   community-flagged accessibility issues for **18 real U.S. cities** and
-   their real transit systems.
+   both stations, with the option to save it as one of your daily routes),
+   delay patterns, elevator/escalator status, and community-flagged
+   accessibility issues for **18 real U.S. cities** and their real transit
+   systems.
 2. **🌬️ Air Quality & Asthma Hazard Alerts** — current AQI, PM2.5, PM10, and
    Ozone levels with a plain-language Asthma Hazard Risk indicator and
    actionable recommendations, using live OpenAQ data when a key is
    configured and a realistic simulation otherwise.
-3. **📌 Saved Locations** — save the current city/ZIP under a label like
+3. **📮 Dynamic ZIP code lookup** — type **any** real 5-digit ZIP in a
+   supported metro area, not just the featured neighborhoods in the
+   dropdown, and every transit and air-quality simulation retunes itself to
+   that exact ZIP.
+4. **📌 Saved Locations** — save the current city/ZIP under a label like
    "Home," "Work," or "School" in the sidebar, then jump back to it with
    one click.
-4. **🩺 Personal Sensitivity Profile** — toggle on Asthma / Sensitive
+5. **🩺 Personal Sensitivity Profile** — toggle on Asthma / Sensitive
    Respiratory and/or Wheelchair / Stroller Access Required, and the app
    shows custom warning (or reassurance) badges right on the main
    dashboard whenever today's AQI or elevator status actually affects you.
-5. **📰 Daily Briefing** — one friendly sentence at the very top of the app,
-   combining right-now transit and air-quality status, e.g. *"Good
-   morning! Transit is running smoothly, but limit long outdoor runs
-   today due to elevated AQI."*
+   Logged-in users can save these toggles as their defaults.
+6. **📰 Daily Briefing** — one friendly sentence at the very top of the
+   dashboard, combining right-now transit and air-quality status, e.g.
+   *"Good morning! Transit is running smoothly, but limit long outdoor
+   runs today due to elevated AQI."*
 
 Every city switch instantly updates the local time shown, the transit
 board, and the air-quality reading — there's nothing to refresh separately.
+
+## 🏠 Home page & accounts
+
+Launching the app now lands you on a **Home page** first, not straight into
+the dashboard. Logged out, it's a short pitch for the app plus three tabs:
+**Log In**, **Sign Up**, and **Continue as Guest** — an account is never
+required, and every feature (including saving locations, the sensitivity
+profile, and the trip planner) works fully for a guest exactly as before.
+
+Signing up (just a username and password) logs you in immediately with a
+starter profile. Once logged in, a **"💾 Save city/ZIP/profile as my
+defaults"** button appears in the sidebar — click it any time your
+dashboard is set up the way you like, and from then on your Home page shows
+a personalized **"Welcome back"** dashboard: your saved city's Daily
+Briefing, a transit-status chip (smooth / minor / major delays, elevator
+outage count), an air-quality chip (AQI + category), and any transit routes
+you've starred from the trip planner (Tab 1 → "Plan a trip" → "⭐ Save this
+as one of my daily routes" once logged in) — all pulled from the exact same
+computation the full dashboard uses, so the two views never disagree. A
+"🧭 Open my full dashboard →" button on the Home page (and a "🏠 Home" /
+"🧭 Dashboard" toggle in the sidebar at all times) switches between the two
+views.
+
+**Please read before you rely on this for anything real:** accounts here
+are a demo login, not a production auth system. They live only in
+`st.session_state` — in server-side memory, for the current session only.
+That means signing up and logging back in works great *within* one browser
+session (which is what makes the "log in → instantly personalized" flow
+demoable end to end), but accounts do **not** survive an app restart and
+are **not** shared across different browsers, devices, or users. Passwords
+are stored in plain text in that same in-memory store — completely fine
+for trying out the feature, but never reuse a real password here. See
+"Extending it" below for the real-database upgrade path.
 
 ## Does this use TODAY's real date/time — in the right city's timezone?
 
@@ -78,6 +123,65 @@ page — there's no background auto-refresh — so "right now" means "as of
 your last page load/interaction," which the "As of ..." timestamp in the
 Daily Briefing always makes explicit.
 
+## 🐛 Fixed: a session-state crash when picking a ZIP code
+
+An earlier version kept the sidebar's ZIP selection as a **list index**
+(e.g. `1` meaning "the second ZIP in this city's list") in
+`st.session_state`, guarded by:
+
+```python
+if st.session_state.get(ZIP_KEY, 0) >= len(zip_options):
+    st.session_state[ZIP_KEY] = 0
+```
+
+That comparison assumes whatever's sitting in `ZIP_KEY` is always an
+`int`. The moment anything else wrote a ZIP **string** into that same slot
+instead — a saved location, or (once accounts were added) a saved
+account default — the comparison became `"10001" >= 3`, which Python
+can't evaluate between a `str` and an `int`, and the app crashed with:
+
+```
+TypeError: '>=' not supported between instances of 'str' and 'int'
+```
+
+**The fix removes the index scheme entirely.** `ZIP_KEY` now always holds
+a plain ZIP-code *string* (e.g. `"10001"`), validated on every read with
+`cities.is_valid_zip()` — a strict type + format check (`isinstance(x,
+str) and x.isdigit() and len(x) == 5`) — instead of a bare numeric
+comparison. Anything that isn't a valid 5-digit string (an old int index,
+`None`, an empty string, a stray float) is caught and safely replaced with
+that city's first featured ZIP, with a one-line notice instead of a crash.
+This is also what makes typing in *any* ZIP code possible (see below) —
+the fix and the new feature share the same root change. It's covered by an
+automated regression test that specifically re-injects the old crash
+shape (an int, `None`, a too-long string, etc.) directly into session
+state and confirms `app.py` runs clean every time.
+
+## 📮 Dynamic ZIP code lookup
+
+The sidebar now has two ways to pick a ZIP: a **"✨ Featured
+neighborhood"** dropdown (the same curated, real neighborhoods as before),
+and a **"📍 Or type any 5-digit ZIP code"** text box. Type in any real ZIP
+within the selected city's metro area and:
+
+- **Air quality** re-simulates specifically for that ZIP — `air_quality.py`
+  already seeded its simulated PM2.5/PM10/Ozone curve from `(city, zip)`
+  together (`stable_seed(city, zip_code)`), so this worked correctly for
+  any ZIP as soon as the UI could accept one.
+- **Transit** now does the same: `transit.get_current_seed(city, zip_code)`
+  folds the ZIP into the arrivals/accessibility seed, so different ZIPs in
+  the same city see a slightly different (but internally consistent)
+  simulated snapshot rather than an identical one city-wide.
+- The **neighborhood name** shown is the real, curated one for a featured
+  ZIP; for any other real ZIP, the app shows an honest generic label (e.g.
+  "ZIP 10099 area") with a one-line note explaining that this demo doesn't
+  ship a full ZIP-to-neighborhood directory — rather than inventing a
+  neighborhood name it doesn't actually know. The city's real transit
+  system and real coordinates are still used either way.
+- Switching cities resets the ZIP field to that city's first featured ZIP,
+  so you never end up looking at, say, a Chicago ZIP while the sidebar
+  still says "New York, NY."
+
 ## 🗺️ Station-to-station trip planner
 
 Tab 1 now includes a "Plan a trip" section: pick a real **origin** and
@@ -91,6 +195,9 @@ Tab 1 now includes a "Plan a trip" section: pick a real **origin** and
   it's internally consistent rather than independently random.
 - **Accessibility status** (elevator/escalator/wheelchair route) at *both*
   the origin and destination stations side by side.
+- If you're logged in, a **"⭐ Save this as one of my daily routes"** button
+  saves the route to your account (up to 8) — they show up both here (as
+  quick "▶️" apply buttons for that city) and on your Home page.
 
 This runs on a **curated, simplified subset** of each city's real lines and
 stations (`transit.py`'s `line_sequences`) — enough real transfer points to
@@ -152,25 +259,29 @@ What's **simulated**, and clearly labeled as such in the UI:
   Every AQI number — live or simulated — is computed with the EPA's real,
   current (2024-revised) AQI breakpoint formula, not a made-up scale.
 
-Community-flagged accessibility reports, saved locations, and your
-sensitivity profile are all real user input, held only in the browser
-session (they reset when the app restarts) — this was a deliberate scope
-choice to keep the demo dependency-free (see "Extending it" below for how
-to make any of them persistent).
+Community-flagged accessibility reports, saved locations, your sensitivity
+profile, and user accounts (including saved routes) are all real user
+input, held only in the browser session (they reset when the app
+restarts) — this was a deliberate scope choice to keep the demo
+dependency-free (see "Extending it" below for how to make any of them
+persistent).
 
 ## Project structure
 
 ```
 local_daily_companion/
-├── app.py             # Streamlit entrypoint — sidebar, tabs, theming, wires everything together
-├── cities.py           # Shared registry: 18 real U.S. cities, coordinates, ZIPs, IANA timezones
-├── transit.py           # Tab 1 — real agencies/lines/stations, routing, simulated live data, reports
-├── air_quality.py        # Tab 2 — OpenAQ integration, EPA AQI math, simulated fallback
+├── app.py                 # Streamlit entrypoint — sidebar, view switching, wires everything together
+├── homepage.py            # Home view — logged-out pitch/login/signup, or logged-in "Welcome back" dashboard
+├── accounts.py            # Session-only user accounts: sign up / log in, saved defaults & routes
+├── cities.py              # Shared registry: 18 real U.S. cities, coordinates, ZIPs, IANA timezones,
+│                          #   ZIP validation/lookup (cities.is_valid_zip / lookup_neighborhood)
+├── transit.py             # Tab 1 — real agencies/lines/stations, routing, simulated live data, reports
+├── air_quality.py         # Tab 2 — OpenAQ integration, EPA AQI math, simulated fallback
 ├── user_profile.py        # Saved locations + sensitivity profile + personal alert badges
-├── briefing.py              # Daily Briefing sentence builder (pure logic, easy to unit-test)
-├── charts.py                 # Plotly chart builders
+├── briefing.py            # Daily Briefing sentence builder (pure logic, easy to unit-test)
+├── charts.py              # Plotly chart builders
 ├── requirements.txt
-└── .streamlit/config.toml       # Custom theme
+└── .streamlit/config.toml # Custom theme
 ```
 
 ### How the personal features fit together
@@ -247,13 +358,26 @@ By default, Tab 2 uses realistic simulated air-quality data. To switch to
 
 ## Extending it
 
-- **Persist community reports, saved locations, or profile toggles across
-  restarts:** all three currently live in `st.session_state`
-  (`accessibility_reports` in `transit.py`; `saved_locations` and each
-  `profile_toggle_*` key in `user_profile.py`). Swapping any of them for a
-  small SQLite file via Python's built-in `sqlite3` module is a natural
-  next step if you want them to survive an app restart, or to be visible
-  across different users' sessions rather than just your own browser tab.
+- **Persist community reports, saved locations, profile toggles, or user
+  accounts across restarts:** all of these currently live in
+  `st.session_state` (`accessibility_reports` in `transit.py`;
+  `saved_locations` and each `profile_toggle_*` key in `user_profile.py`;
+  the whole `accounts_store` dict in `accounts.py`). Swapping any of them
+  for a small SQLite database via Python's built-in `sqlite3` module is a
+  natural next step if you want them to survive an app restart, or to be
+  visible across different users' sessions rather than just your own
+  browser tab. For accounts specifically, that upgrade should also add
+  real password hashing (e.g. `hashlib.pbkdf2_hmac` or `bcrypt`) in place
+  of `accounts.py`'s current plain-text, in-memory demo storage — see that
+  module's docstring for the exact spots to change (`sign_up`/`log_in`
+  compare `account["password"]` directly today).
+- **Add a real ZIP-to-neighborhood directory:** `cities.lookup_neighborhood()`
+  only recognizes each city's small curated list today; a free ZIP
+  centroid dataset (e.g. the US Census Bureau's ZCTA gazetteer) would let
+  you resolve any real ZIP to an actual neighborhood/lat-lon instead of the
+  current honest "ZIP {code} area" placeholder, and would let `air_quality.py`
+  fetch OpenAQ readings from that ZIP's own coordinates instead of the
+  city-wide ones.
 - **Add live hourly AQI history:** `air_quality.py` currently uses OpenAQ
   only for the *current* reading. OpenAQ's
   `/v3/sensors/{id}/measurements/hourly` endpoint can provide a real
@@ -301,8 +425,20 @@ matches the selected city's own local clock, not the server's. One real
 bug (a floating-point edge case in the AQI breakpoint lookup, where
 PM2.5 = 9.1 could round to a value that fell through every bracket and
 silently returned AQI 301 instead of 51) was caught and fixed in an
-earlier pass and re-verified here. Still, since the actual Streamlit/Plotly
-rendering, the live OpenAQ request/response shape, and the real
-`st.context.timezone` browser API couldn't be exercised for real, give the
-app a look after your first `streamlit run` and a quick OpenAQ key test if
-you add one.*
+earlier pass and re-verified here.
+
+This pass added the same rigor for the session-state crash fix, dynamic
+ZIP lookup, and the Home page/account system: an automated test
+re-injects the exact historical bug shape (an `int`, `None`, a too-long
+string, and other non-ZIP values) directly into `st.session_state`'s ZIP
+slot and runs the full `app.py` script end to end, confirming no
+`TypeError` anywhere, in both the Home and Dashboard views; sign-up,
+login with correct and incorrect credentials, duplicate-username
+rejection, saving preferences, and saving/replacing/removing routes were
+each exercised directly against `accounts.py`; and the full app was run
+across all 18 cities × guest/logged-in × Home/Dashboard (72 combinations)
+plus several custom, unfeatured ZIP codes, with no crash in any
+combination. Still, since the actual Streamlit/Plotly rendering, the live
+OpenAQ request/response shape, and the real `st.context.timezone` browser
+API couldn't be exercised for real, give the app a look after your first
+`streamlit run` and a quick OpenAQ key test if you add one.*

@@ -537,15 +537,20 @@ def get_route(city: str, origin: str, destination: str, seed: int, now: datetime
 # --------------------------------------------------------------------------
 # Shared "how's transit doing right now" computation
 # --------------------------------------------------------------------------
-def get_current_seed(city: str) -> int:
+def get_current_seed(city: str, zip_code: str = None) -> int:
     """The seed basis for 'this run's' simulated snapshot -- a stable
-    per-city seed plus the session's refresh-button tick counter, so the
-    top-of-page daily briefing/alerts and Tab 1's own tables always agree
-    with each other, and both update together when the user clicks
-    Refresh. Safe to call before render_transit_tab has run this session
-    (defaults the tick to 0, same as render_transit_tab would)."""
+    per-city (and, when given, per-ZIP) seed plus the session's
+    refresh-button tick counter, so the top-of-page daily briefing/alerts
+    and Tab 1's own tables always agree with each other, and both update
+    together when the user clicks Refresh. Passing `zip_code` tailors the
+    simulated arrivals/accessibility snapshot to that specific ZIP within
+    the city (the same way air_quality.py already varies its simulation
+    per ZIP), rather than every ZIP in a city seeing an identical board.
+    Safe to call before render_transit_tab has run this session (defaults
+    the tick to 0, same as render_transit_tab would)."""
     tick = st.session_state.get("transit_tick", 0)
-    return stable_seed(city, "arrivals") + tick
+    base = stable_seed(city, "arrivals", zip_code) if zip_code else stable_seed(city, "arrivals")
+    return base + tick
 
 
 def get_current_status_summary(city: str, accessibility_df: pd.DataFrame = None, now: datetime = None) -> dict:
@@ -642,7 +647,7 @@ def _accessibility_lookup(accessibility_df: pd.DataFrame, station: str) -> dict:
 
 
 def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibility_df: pd.DataFrame = None,
-                        now: datetime = None):
+                        now: datetime = None, zip_code: str = None, logged_in_user: str = None):
     import charts  # local import keeps charts.py's own imports lightweight
 
     init_reports_state()
@@ -652,12 +657,14 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
     if "transit_tick" not in st.session_state:
         st.session_state.transit_tick = 0
 
+    zip_note = f" ({zip_code})" if zip_code else ""
     st.markdown(
         f"""
         <div class="companion-banner">
         <b>{system['mode']} &nbsp;{system['agency']}</b> — showing simulated next-arrival data
-        for real {city} stations and lines near <b>{neighborhood}</b>. Arrival times and delays
-        refresh below are for demo purposes; station and route names are real.
+        for real {city} stations and lines near <b>{neighborhood}{zip_note}</b>. Arrival times and
+        delays refresh below are for demo purposes and tailored to this ZIP's simulated snapshot;
+        station and route names are real.
         </div>
         """,
         unsafe_allow_html=True,
@@ -675,7 +682,7 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
             st.session_state.transit_tick += 1
 
     if seed is None:
-        seed = get_current_seed(city)
+        seed = get_current_seed(city, zip_code)
     arrivals = generate_arrivals(city, seed, now=now)
     if selected_lines:
         arrivals = arrivals[arrivals["line"].isin(selected_lines)]
@@ -717,6 +724,19 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
         "pair is covered yet (see the note below if yours isn't)."
     )
     routable_stations = get_routable_stations(city)
+
+    if logged_in_user:
+        from accounts import get_account  # local import avoids a circular import at module load
+        account = get_account(logged_in_user)
+        saved_here = [r for r in (account["saved_routes"] if account else []) if r["city"] == city]
+        if saved_here:
+            with st.expander(f"⭐ Your saved {city} routes ({len(saved_here)})", expanded=False):
+                for r in saved_here:
+                    if st.button(f"▶️ {r['label']}", key=f"apply_route_{city}_{r['label']}", use_container_width=True):
+                        st.session_state[f"route_origin_{city}"] = r["origin"]
+                        st.session_state[f"route_dest_{city}"] = r["destination"]
+                        st.rerun()
+
     if len(routable_stations) < 2:
         st.info("Not enough curated stations for this city yet to plan a route.")
     else:
@@ -787,6 +807,14 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
                     """,
                     unsafe_allow_html=True,
                 )
+
+            if logged_in_user:
+                if st.button("⭐ Save this as one of my daily routes", key=f"save_route_{city}_{origin_station}_{destination_station}"):
+                    from accounts import add_saved_route  # local import avoids a circular import at module load
+                    add_saved_route(logged_in_user, city, origin_station, destination_station)
+                    st.success("Saved! You'll see it on your homepage and in your saved routes above.")
+            else:
+                st.caption("Log in from the Home page to save this route to your account for next time.")
 
     st.subheader("🛗 Station accessibility status")
     st.caption("Simulated elevator/escalator status, refreshed with the button above.")

@@ -93,11 +93,16 @@ def remove_location(label: str):
 
 def apply_location(loc: dict, city_key: str, zip_key: str):
     """Push a saved location into the sidebar's own city/ZIP widget state
-    (by key) so those widgets pick it up automatically on the next rerun."""
+    (by key) so those widgets pick it up automatically on the next rerun.
+
+    ZIP_KEY holds a plain ZIP-code STRING (e.g. "10001"), never a list
+    index -- storing anything else here is exactly what used to cause a
+    `'>=' not supported between instances of 'str' and 'int'` crash when a
+    stray string and an index-based comparison collided. Since ZIP_KEY is
+    always a string now, applying a saved location is just this one line.
+    """
     st.session_state[city_key] = loc["city"]
-    zips = get_city(loc["city"])["zips"]
-    idx = next((i for i, z in enumerate(zips) if z["zip"] == loc["zip"]), 0)
-    st.session_state[zip_key] = idx
+    st.session_state[zip_key] = loc["zip"]
 
 
 def render_saved_locations_sidebar(current_city: str, current_zip: str, current_neighborhood: str,

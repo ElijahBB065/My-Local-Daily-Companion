@@ -2,18 +2,23 @@
 app.py
 Local Daily Companion -- Streamlit entrypoint.
 
-Two tabs:
-  1. Transit Accessibility & Delay Tracker
+Default Home view, plus two dashboard tabs:
+  1. Transit Accessibility & Delay Tracker (with a station-to-station trip planner)
   2. Air Quality & Asthma Hazard Alerts
 
-...plus three personal features that sit above both tabs:
+...plus several personal features:
+  - A Home page (login/sign-up, or a personalized "Welcome Back" dashboard
+    for a logged-in user) -- see homepage.py / accounts.py
   - Saved Locations (Home / Work / School-style presets) in the sidebar
   - A Personal Sensitivity Profile (asthma, wheelchair/stroller access)
     that drives custom warning badges on the main dashboard
   - A one-sentence Daily Briefing banner combining transit + air quality
+  - Dynamic ZIP code entry: type ANY real 5-digit ZIP in a supported metro
+    area, not just the featured ones, and every simulation tailors itself
+    to that exact ZIP (see cities.lookup_neighborhood / is_valid_zip)
 
 Every city, transit agency, line, and station name is real. Live transit
-arrivals aren't available from a single free API across a dozen agencies,
+arrivals aren't available from a single free API across eighteen agencies,
 so Tab 1 uses clearly-labeled simulated arrival/delay data shaped like a
 real one. Tab 2 tries a live OpenAQ reading first and only falls back to
 a realistic simulation if no API key is configured or the request fails
@@ -33,15 +38,23 @@ in that city's own clock. The one thing that's intentionally stable is the
 -- that's deterministic per city so the charts don't reshuffle confusingly
 on every restart, but which hour of that shape counts as "now" always
 tracks the real, city-local clock.
+
+ABOUT ACCOUNTS: logging in is entirely optional -- every feature works for
+a guest with no account. Accounts (accounts.py) live only in this
+session's memory, the same honest scope choice already used for community
+reports and saved locations; see accounts.py's docstring and the README.
 """
 
 import streamlit as st
 
+import accounts
 import air_quality
 import briefing
+import homepage
 import transit
 import user_profile
-from cities import CITY_NAMES, get_city, now_in_city
+from cities import CITY_NAMES, get_city, now_in_city, lookup_neighborhood, is_valid_zip
+from user_profile import PROFILE_KEY_PREFIX
 
 st.set_page_config(
     page_title="Local Daily Companion",
@@ -51,7 +64,11 @@ st.set_page_config(
 )
 
 CITY_KEY = "selected_city_key"
-ZIP_KEY = "selected_zip_idx_key"
+ZIP_KEY = "selected_zip_code_key"  # always holds a plain ZIP-code STRING, e.g. "10001" -- see the
+                                    # sidebar section below for why this used to be an index and crashed
+
+if "view" not in st.session_state:
+    st.session_state.view = "home"  # the Home page is the default view on launch
 
 # --------------------------------------------------------------------------
 # Styling -- bright, playful, card-based
@@ -180,20 +197,80 @@ st.markdown(
 with st.sidebar:
     st.markdown("## 🧭 Local Daily Companion")
     st.caption("Your city, your commute, your air.")
+
+    nav_l, nav_r = st.columns(2)
+    with nav_l:
+        if st.button("🏠 Home", use_container_width=True,
+                      type="primary" if st.session_state.view == "home" else "secondary"):
+            st.session_state.view = "home"
+            st.rerun()
+    with nav_r:
+        if st.button("🧭 Dashboard", use_container_width=True,
+                      type="primary" if st.session_state.view == "app" else "secondary"):
+            st.session_state.view = "app"
+            st.rerun()
+
+    if accounts.is_logged_in():
+        st.caption(f"👤 Logged in as **{accounts.current_user()}**")
     st.divider()
 
     city = st.selectbox("🏙️ Choose your city", options=CITY_NAMES, key=CITY_KEY)
     city_info = get_city(city)
 
+    # ------------------------------------------------------------------
+    # ZIP code entry. ZIP_KEY holds a plain ZIP-code STRING (never a list
+    # index). Earlier code kept an INDEX in this same slot and compared it
+    # with `>= len(zip_options)` to guard against a shorter ZIP list after
+    # switching cities -- but anything that ever wrote a ZIP STRING into
+    # that slot instead (a saved location, a saved account default) made
+    # that comparison crash with `TypeError: '>=' not supported between
+    # instances of 'str' and 'int'`. Standardizing on "ZIP_KEY is always a
+    # string, always validated with is_valid_zip()" removes that whole
+    # class of bug AND is what makes "type any real ZIP code" possible.
+    # ------------------------------------------------------------------
     zip_options = city_info["zips"]
-    zip_labels = [f"{z['zip']} — {z['neighborhood']}" for z in zip_options]
-    if st.session_state.get(ZIP_KEY, 0) >= len(zip_options):
-        st.session_state[ZIP_KEY] = 0  # guard against a shorter ZIP list after switching cities
-    zip_choice_idx = st.selectbox(
-        "📍 Neighborhood / ZIP code", options=range(len(zip_options)),
-        format_func=lambda i: zip_labels[i], key=ZIP_KEY,
+    featured_zip_values = [z["zip"] for z in zip_options]
+    featured_labels = {z["zip"]: f"{z['zip']} — {z['neighborhood']}" for z in zip_options}
+
+    if st.session_state.get("_zip_city_context") != city:
+        # city just changed -- reset to that city's first featured ZIP
+        # rather than carrying over a ZIP that belongs to a different city.
+        st.session_state[ZIP_KEY] = featured_zip_values[0]
+        st.session_state.pop("featured_zip_pick", None)
+        st.session_state["_zip_city_context"] = city
+    elif not is_valid_zip(st.session_state.get(ZIP_KEY)):
+        st.session_state[ZIP_KEY] = featured_zip_values[0]
+
+    def _apply_featured_zip():
+        st.session_state[ZIP_KEY] = st.session_state["featured_zip_pick"]
+
+    st.selectbox(
+        "✨ Featured neighborhood", options=featured_zip_values,
+        format_func=lambda z: featured_labels.get(z, z),
+        key="featured_zip_pick", on_change=_apply_featured_zip,
     )
-    selected_zip = zip_options[zip_choice_idx]
+    st.text_input(
+        "📍 Or type any 5-digit ZIP code", key=ZIP_KEY, max_chars=5,
+        help="Works for any real ZIP in this metro area, not just the featured list above -- "
+             "transit and air-quality simulations are tailored to the exact ZIP you enter.",
+    )
+
+    raw_zip = st.session_state.get(ZIP_KEY, "")
+    if is_valid_zip(raw_zip):
+        selected_zip_code = raw_zip
+    else:
+        st.caption(f"⚠️ '{raw_zip}' isn't a valid 5-digit ZIP — using {featured_zip_values[0]} for now.")
+        selected_zip_code = featured_zip_values[0]
+
+    zip_lookup = lookup_neighborhood(city, selected_zip_code)
+    selected_zip = {"zip": selected_zip_code, "neighborhood": zip_lookup["neighborhood"]}
+    if not zip_lookup["known"]:
+        st.caption(
+            f"ℹ️ {selected_zip_code} isn't one of {city.split(',')[0]}'s featured ZIPs — this demo "
+            "doesn't ship a full ZIP-to-neighborhood directory, so transit and air-quality data "
+            f"below is simulated and tailored to this exact ZIP using {city}'s real transit "
+            "system and coordinates."
+        )
 
     # -- Real, city-local time (not server/UTC time) -----------------------
     city_now = now_in_city(city)
@@ -223,6 +300,17 @@ with st.sidebar:
     st.divider()
     user_profile.render_profile_toggles()
 
+    if accounts.is_logged_in():
+        st.divider()
+        st.markdown("#### 👤 Your account")
+        if st.button("💾 Save city/ZIP/profile as my defaults", use_container_width=True):
+            accounts.save_preferences(accounts.current_user(), city, selected_zip["zip"], user_profile.get_profile())
+            st.success("Saved — you'll see this instantly on your Home page from now on.")
+        if st.button("Log out", use_container_width=True, key="sidebar_logout"):
+            accounts.log_out()
+            st.session_state.view = "home"
+            st.rerun()
+
     st.divider()
     st.caption(
         f"**{len(CITY_NAMES)} real cities, real transit agencies, real station names.** Live "
@@ -240,7 +328,7 @@ with st.sidebar:
 profile = user_profile.get_profile()
 
 try:
-    transit_seed = transit.get_current_seed(city)
+    transit_seed = transit.get_current_seed(city, selected_zip["zip"])
     accessibility_now = transit.generate_station_accessibility(city, transit_seed)
     transit_status = transit.get_current_status_summary(city, accessibility_now, now=city_now)
 except Exception:
@@ -257,9 +345,26 @@ except Exception:
                     "risk": air_quality.asthma_risk(None), "source_badge": "", "as_of": city_now}
 
 # --------------------------------------------------------------------------
-# Daily Briefing banner
+# Daily Briefing text -- built once, shared by the Home page and the
+# dashboard's own briefing banner below, so the two views can never
+# disagree with each other.
 # --------------------------------------------------------------------------
 briefing_text = briefing.build_daily_briefing(transit_status, aqi_reading, profile, now=city_now)
+
+# --------------------------------------------------------------------------
+# Home view vs. Dashboard view
+# --------------------------------------------------------------------------
+if st.session_state.view == "home":
+    homepage.render_homepage(
+        CITY_KEY, ZIP_KEY, PROFILE_KEY_PREFIX,
+        city=city, neighborhood=selected_zip["neighborhood"], zip_code=selected_zip["zip"],
+        briefing_text=briefing_text, transit_status=transit_status, aqi_reading=aqi_reading, city_now=city_now,
+    )
+    st.stop()
+
+# --------------------------------------------------------------------------
+# Dashboard's own Daily Briefing banner
+# --------------------------------------------------------------------------
 try:
     briefing_tz = f" {city_now:%Z}".rstrip()
 except Exception:
@@ -299,7 +404,8 @@ with tab_transit:
     try:
         transit.render_transit_tab(
             city, selected_zip["neighborhood"], seed=transit_seed, accessibility_df=accessibility_now,
-            now=city_now,
+            now=city_now, zip_code=selected_zip["zip"],
+            logged_in_user=accounts.current_user() if accounts.is_logged_in() else None,
         )
     except Exception as e:  # noqa: BLE001 -- last-resort guard so a bad render never blanks the whole app
         st.error("Something went wrong loading the transit tracker for this city. Try refreshing or picking a different city.")
