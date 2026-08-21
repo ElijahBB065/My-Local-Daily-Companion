@@ -286,19 +286,22 @@ def _metric_card(label: str, value_str: str, note: str, accent: str = "#2a78d6")
 # --------------------------------------------------------------------------
 # Shared "what's the air like right now" computation
 # --------------------------------------------------------------------------
-def get_current_reading(city: str, zip_code: str, lat: float, lon: float) -> dict:
+def get_current_reading(city: str, zip_code: str, lat: float, lon: float, now: datetime = None) -> dict:
     """The single source of truth for 'right now' air quality -- tries a
-    live OpenAQ reading, falls back to the simulator, and always uses
-    datetime.now() so the reading reflects the actual moment this function
-    is called (no caching, no frozen dates). Called once per app run from
-    app.py and shared by the daily briefing, the personal alerts, and the
-    Air Quality tab itself, so all three always agree with each other and
-    a live API call never happens more than once per rerun."""
+    live OpenAQ reading, falls back to the simulator, and always uses the
+    CITY'S OWN LOCAL TIME (pass `now` from cities.now_in_city(city)) so the
+    reading's "current hour" reflects that city's actual local hour, not
+    the server's (no caching, no frozen dates -- just the right clock).
+    Called once per app run from app.py and shared by the daily briefing,
+    the personal alerts, and the Air Quality tab itself, so all three
+    always agree with each other and a live API call never happens more
+    than once per rerun."""
+    now = now or datetime.now()
     api_key = get_api_key()
     live = fetch_live_readings(lat, lon, api_key) if api_key else None
 
     hourly = simulate_hourly_aqi(city, zip_code)
-    current_hour = datetime.now().hour  # real wall-clock hour, every call
+    current_hour = now.hour  # the city's own local wall-clock hour, every call
     sim_now = hourly.iloc[current_hour]
 
     if live and (live.get("pm25") is not None or live.get("pm10") is not None or live.get("o3_ppb") is not None):
@@ -326,7 +329,7 @@ def get_current_reading(city: str, zip_code: str, lat: float, lon: float) -> dic
         "sub_indices": result["sub_indices"], "dominant": result["dominant"],
         "risk": risk, "source": source, "source_badge": source_badge,
         "hourly": hourly, "current_hour": current_hour,
-        "as_of": datetime.now(),
+        "as_of": now,
     }
 
 
@@ -373,7 +376,11 @@ def render_air_quality_tab(city: str, zip_code: str, neighborhood: str, lat: flo
         unsafe_allow_html=True,
     )
     st.caption(DISCLAIMER)
-    st.caption(f"📅 As of {reading['as_of']:%A, %B %d, %Y — %I:%M %p} (your device's local time).")
+    try:
+        tz_suffix = f" {reading['as_of']:%Z}".rstrip()
+    except Exception:
+        tz_suffix = ""
+    st.caption(f"📅 As of {reading['as_of']:%A, %B %d, %Y — %I:%M %p}{tz_suffix} local time in {city}.")
 
     st.subheader("📈 Trends")
     st.caption(

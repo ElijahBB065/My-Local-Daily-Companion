@@ -150,14 +150,16 @@ def _alert_card(icon_and_title: str, body: str, accent: str):
     )
 
 
-def render_personal_alerts(city: str, profile: dict, aqi_reading: dict, transit_status: dict):
+def render_personal_alerts(city: str, profile: dict, aqi_reading: dict, transit_status: dict, now: datetime = None):
     """Custom warning badges for the main dashboard -- only shown for
     profile toggles the user has actually turned on, and only worded as a
     warning when today's real conditions actually call for one. Reads
     aqi_reading/transit_status computed once in app.py, so this always
-    matches the numbers shown in the two tabs below."""
+    matches the numbers shown in the two tabs below. `now` should be the
+    selected city's own local time (cities.now_in_city), not the server's."""
     if not any(profile.values()):
         return
+    now = now or datetime.now()
 
     st.markdown('<div class="alerts-heading">🔔 Your Personal Alerts</div>', unsafe_allow_html=True)
 
@@ -202,4 +204,11 @@ def render_personal_alerts(city: str, profile: dict, aqi_reading: dict, transit_
                 "#0ca30c",
             )
 
-    st.caption(f"Alerts reflect conditions as of {datetime.now():%I:%M %p} — refresh the page any time for the latest.")
+    try:
+        tz_suffix = f" {now:%Z}".rstrip()
+    except Exception:
+        tz_suffix = ""
+    st.caption(
+        f"Alerts reflect conditions as of {now:%I:%M %p}{tz_suffix} local time in {city} — "
+        "refresh the page any time for the latest."
+    )

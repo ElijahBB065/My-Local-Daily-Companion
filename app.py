@@ -23,15 +23,17 @@ data you're looking at.
 ABOUT "RIGHT NOW": nothing in this app is cached or frozen to a fixed
 date. The daily briefing's greeting, the AQI "current hour" marker, the
 transit delay-right-now estimate, and every timestamp shown are computed
-from datetime.now() fresh on every rerun -- reload the page a minute from
-now (or tomorrow) and they'll reflect that exact moment. The one thing
-that's intentionally stable is the *shape* of a simulated day (e.g. "CTA
-Red Line delays peak around 5:30pm") -- that's deterministic per city so
-the charts don't reshuffle confusingly on every restart, but which hour
-of that shape counts as "now" always tracks the real clock.
+fresh on every rerun from the SELECTED CITY'S OWN LOCAL TIME (via
+cities.now_in_city(), which converts the real current instant into that
+city's real IANA timezone with zoneinfo) -- not raw server time, which on
+most cloud hosts is UTC and matches no real place. Reload the page a
+minute from now (or tomorrow) and everything reflects that exact moment,
+in that city's own clock. The one thing that's intentionally stable is the
+*shape* of a simulated day (e.g. "CTA Red Line delays peak around 5:30pm")
+-- that's deterministic per city so the charts don't reshuffle confusingly
+on every restart, but which hour of that shape counts as "now" always
+tracks the real, city-local clock.
 """
-
-from datetime import datetime
 
 import streamlit as st
 
@@ -39,7 +41,7 @@ import air_quality
 import briefing
 import transit
 import user_profile
-from cities import CITY_NAMES, get_city
+from cities import CITY_NAMES, get_city, now_in_city
 
 st.set_page_config(
     page_title="Local Daily Companion",
@@ -193,6 +195,25 @@ with st.sidebar:
     )
     selected_zip = zip_options[zip_choice_idx]
 
+    # -- Real, city-local time (not server/UTC time) -----------------------
+    city_now = now_in_city(city)
+    try:
+        browser_tz = st.context.timezone
+    except Exception:
+        browser_tz = None
+    city_tz_name = city_info.get("timezone", "")
+    try:
+        tz_abbr = f" {city_now:%Z}".rstrip()
+    except Exception:
+        tz_abbr = ""
+    st.caption(f"🕒 Local time in {city.split(',')[0]}: **{city_now:%I:%M %p}{tz_abbr}** ({city_tz_name})")
+    if browser_tz and city_tz_name and browser_tz != city_tz_name:
+        st.caption(
+            f"Your browser is set to `{browser_tz}` — the times shown throughout this app "
+            f"reflect **{city}'s** own local time above, not your browser's, in case you're "
+            "checking in on a different city than the one you're in."
+        )
+
     st.divider()
     user_profile.render_saved_locations_sidebar(
         current_city=city, current_zip=selected_zip["zip"], current_neighborhood=selected_zip["neighborhood"],
@@ -204,7 +225,7 @@ with st.sidebar:
 
     st.divider()
     st.caption(
-        "**Real cities, real transit agencies, real station names.** Live "
+        f"**{len(CITY_NAMES)} real cities, real transit agencies, real station names.** Live "
         "arrival times and air-quality readings use clearly-labeled simulated "
         "or fallback data where a live feed isn't available — see each tab "
         "for details."
@@ -221,7 +242,7 @@ profile = user_profile.get_profile()
 try:
     transit_seed = transit.get_current_seed(city)
     accessibility_now = transit.generate_station_accessibility(city, transit_seed)
-    transit_status = transit.get_current_status_summary(city, accessibility_now)
+    transit_status = transit.get_current_status_summary(city, accessibility_now, now=city_now)
 except Exception:
     transit_seed, accessibility_now = None, None
     transit_status = {"level": "smooth", "phrase": "transit status is unavailable right now",
@@ -229,22 +250,26 @@ except Exception:
 
 try:
     aqi_reading = air_quality.get_current_reading(
-        city=city, zip_code=selected_zip["zip"], lat=city_info["lat"], lon=city_info["lon"],
+        city=city, zip_code=selected_zip["zip"], lat=city_info["lat"], lon=city_info["lon"], now=city_now,
     )
 except Exception:
     aqi_reading = {"aqi": None, "label": "No data", "color": "#898781", "emoji": "❔",
-                    "risk": air_quality.asthma_risk(None), "source_badge": "", "as_of": datetime.now()}
+                    "risk": air_quality.asthma_risk(None), "source_badge": "", "as_of": city_now}
 
 # --------------------------------------------------------------------------
 # Daily Briefing banner
 # --------------------------------------------------------------------------
-briefing_text = briefing.build_daily_briefing(transit_status, aqi_reading, profile)
+briefing_text = briefing.build_daily_briefing(transit_status, aqi_reading, profile, now=city_now)
+try:
+    briefing_tz = f" {city_now:%Z}".rstrip()
+except Exception:
+    briefing_tz = ""
 st.markdown(
     f"""
     <div class="briefing-card">
         <div class="briefing-label">📰 Daily Briefing</div>
         <div class="briefing-text">{briefing_text}</div>
-        <div class="briefing-time">As of {datetime.now():%A, %B %d, %Y — %I:%M %p} · {city}</div>
+        <div class="briefing-time">As of {city_now:%A, %B %d, %Y — %I:%M %p}{briefing_tz} · {city}</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -253,7 +278,7 @@ st.markdown(
 # --------------------------------------------------------------------------
 # Personal alerts (only shown for profile toggles the user turned on)
 # --------------------------------------------------------------------------
-user_profile.render_personal_alerts(city, profile, aqi_reading, transit_status)
+user_profile.render_personal_alerts(city, profile, aqi_reading, transit_status, now=city_now)
 
 # --------------------------------------------------------------------------
 # Header
@@ -274,6 +299,7 @@ with tab_transit:
     try:
         transit.render_transit_tab(
             city, selected_zip["neighborhood"], seed=transit_seed, accessibility_df=accessibility_now,
+            now=city_now,
         )
     except Exception as e:  # noqa: BLE001 -- last-resort guard so a bad render never blanks the whole app
         st.error("Something went wrong loading the transit tracker for this city. Try refreshing or picking a different city.")
