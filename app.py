@@ -47,14 +47,99 @@ reports and saved locations; see accounts.py's docstring and the README.
 
 import streamlit as st
 
-import accounts
-import air_quality
-import briefing
-import homepage
-import transit
-import user_profile
-from cities import CITY_NAMES, get_city, now_in_city, lookup_neighborhood, is_valid_zip
-from user_profile import PROFILE_KEY_PREFIX
+# --------------------------------------------------------------------------
+# Import the rest of this project defensively.
+#
+# app.py, cities.py, transit.py, air_quality.py, accounts.py, homepage.py,
+# user_profile.py, briefing.py, and charts.py are all delivered together
+# as a MATCHED SET and import from each other -- most importantly, several
+# of them (accounts.py, user_profile.py, transit.py, air_quality.py) do
+# `from cities import ...` at their own top level. That means dropping a
+# newer app.py next to an older/incomplete cities.py (or a folder that's
+# simply missing cities.py) can raise an ImportError from INSIDE one of
+# those other files, not from this file's own import line -- so the whole
+# block is wrapped here, not just app.py's own `import cities`.
+#
+# CITY_NAMES and get_city are load-bearing -- there's no safe way to
+# reconstruct 18 cities' worth of real coordinates/timezones/ZIPs if
+# they're missing, so that failure gets a clear, friendly stop instead of
+# a raw traceback. now_in_city / lookup_neighborhood / is_valid_zip are
+# newer additions (timezone support + dynamic ZIP lookup) added after
+# CITY_NAMES/get_city already existed; if cities.py has the former but not
+# the latter, app.py defines its own equivalent fallback further below so
+# the app keeps working rather than crashing outright. Updating cities.py
+# (and every other file) to the latest matching version is still the right
+# long-term fix -- see the README's "Keep all files in sync" note.
+# --------------------------------------------------------------------------
+try:
+    import accounts
+    import air_quality
+    import briefing
+    import homepage
+    import transit
+    import user_profile
+    import cities as _cities_mod
+    from user_profile import PROFILE_KEY_PREFIX
+    CITY_NAMES = _cities_mod.CITY_NAMES
+    get_city = _cities_mod.get_city
+except (ImportError, AttributeError) as e:
+    st.set_page_config(page_title="Local Daily Companion", page_icon="🧭", layout="wide")
+    st.error(
+        "⚠️ **Setup problem:** this project's files don't match up -- "
+        f"one of them failed to import (`{e}`).\n\n"
+        "`app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`, `homepage.py`, "
+        "`user_profile.py`, `briefing.py`, and `charts.py` are delivered together and depend on "
+        "each other, so please make sure **all** of them are the matching set from the same "
+        "delivery, sitting in the same folder, then restart the app. See the README's "
+        "\"Keep all files in sync\" note for details."
+    )
+    st.stop()
+    raise
+
+if hasattr(_cities_mod, "now_in_city"):
+    now_in_city = _cities_mod.now_in_city
+else:
+    from datetime import datetime as _datetime
+    try:
+        from zoneinfo import ZoneInfo as _ZoneInfo
+    except ImportError:  # pragma: no cover -- stdlib since Python 3.9
+        _ZoneInfo = None
+
+    def now_in_city(city_name: str):
+        """Fallback for an older cities.py that doesn't define this yet --
+        same behavior as the current cities.now_in_city(): convert the
+        real current instant into the city's own IANA timezone if one is
+        on record, else fall back to plain server time rather than crash."""
+        tz_name = get_city(city_name).get("timezone")
+        if tz_name and _ZoneInfo is not None:
+            try:
+                return _datetime.now(_ZoneInfo(tz_name))
+            except Exception:
+                pass
+        return _datetime.now()
+
+if hasattr(_cities_mod, "is_valid_zip"):
+    is_valid_zip = _cities_mod.is_valid_zip
+else:
+    def is_valid_zip(zip_code) -> bool:
+        """Fallback for an older cities.py -- same strict check as the
+        current cities.is_valid_zip()."""
+        return isinstance(zip_code, str) and zip_code.isdigit() and len(zip_code) == 5
+
+if hasattr(_cities_mod, "lookup_neighborhood"):
+    lookup_neighborhood = _cities_mod.lookup_neighborhood
+else:
+    def lookup_neighborhood(city_name: str, zip_code: str) -> dict:
+        """Fallback for an older cities.py -- same behavior as the current
+        cities.lookup_neighborhood(): match a featured ZIP's real
+        neighborhood name, or an honest generic label otherwise."""
+        city_info = get_city(city_name)
+        if is_valid_zip(zip_code):
+            for z in city_info.get("zips", []):
+                if z["zip"] == zip_code:
+                    return {"neighborhood": z["neighborhood"], "known": True}
+            return {"neighborhood": f"ZIP {zip_code} area", "known": False}
+        return {"neighborhood": "Unknown area", "known": False}
 
 st.set_page_config(
     page_title="Local Daily Companion",

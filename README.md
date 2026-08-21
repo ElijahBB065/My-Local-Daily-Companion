@@ -40,6 +40,32 @@ top:
 Every city switch instantly updates the local time shown, the transit
 board, and the air-quality reading — there's nothing to refresh separately.
 
+## ⚠️ Keep all files in sync
+
+`app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`,
+`homepage.py`, `user_profile.py`, `briefing.py`, and `charts.py` are
+**always delivered together as one matched set** and import from each
+other — most importantly, several of them do `from cities import ...` at
+their own top level. Uploading a newer `app.py` to GitHub next to an
+**older** `cities.py` (e.g. from an earlier version of this project that
+didn't yet have `now_in_city`, `lookup_neighborhood`, or `is_valid_zip`)
+will raise an `ImportError` on startup, because Python's
+`from module import a, b, c` fails as a whole if even *one* of those names
+doesn't exist in `module` yet — even though `a` and `b` might be there.
+
+**When you update this project, replace every file at once**, not just
+the one(s) you asked about — grab the full delivery (the zip) rather than
+mixing individual files from different messages/versions.
+
+As a safety net, `app.py` now also handles this gracefully on its own: if
+`cities.py` (or any other file above) is missing or out of sync, you'll
+see a clear on-screen message telling you exactly what to fix instead of
+a raw Python traceback, and if `cities.py` merely lacks one of the three
+newer helper functions, `app.py` defines a working equivalent internally
+so the app keeps running rather than crashing. Updating `cities.py` (and
+everything else) to the latest version, together, is still the right
+long-term fix.
+
 ## 🏠 Home page & accounts
 
 Launching the app now lands you on a **Home page** first, not straight into
