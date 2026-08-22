@@ -36,6 +36,22 @@ top:
    dashboard, combining right-now transit and air-quality status, e.g.
    *"Good morning! Transit is running smoothly, but limit long outdoor
    runs today due to elevated AQI."*
+7. **🌼 Pollen Index** — a simulated daily pollen reading (0-12 scale,
+   matching Pollen.com/National Allergy Bureau conventions) following a
+   real seasonal curve — tree pollen in spring, grass in early summer,
+   ragweed in late summer/fall, mostly mold in winter — deterministic per
+   city, ZIP, and calendar day.
+8. **⚡ "Your Day Is Clear" outlook banner** — the very first thing on the
+   dashboard: one bold, color-coded verdict (green "clear," amber
+   "caution," red "hazard") rolled up from transit + air quality + pollen,
+   built to be readable in under three seconds, backed by three matching
+   vivid status tiles for Transit / Air Quality / Pollen underneath it.
+9. **🔔 Daily Briefing Preferences & one-click export** — an opt-in morning
+   reminder setting in the sidebar, a **"Download Daily Commute Calendar
+   Event"** button that produces a real, importable `.ics` file (repeats
+   daily, with a 15-minute-before alarm, today's actual briefing in the
+   description), and a paste-ready plain-text daily summary via a
+   one-click copy icon.
 
 Every city switch instantly updates the local time shown, the transit
 board, and the air-quality reading — there's nothing to refresh separately.
@@ -43,8 +59,9 @@ board, and the air-quality reading — there's nothing to refresh separately.
 ## ⚠️ Keep all files in sync
 
 `app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`,
-`homepage.py`, `user_profile.py`, `briefing.py`, and `charts.py` are
-**always delivered together as one matched set** and import from each
+`homepage.py`, `user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`,
+`exports.py`, and `charts.py` are **always delivered together as one
+matched set** and import from each
 other — most importantly, several of them do `from cities import ...` at
 their own top level. Uploading a newer `app.py` to GitHub next to an
 **older** `cities.py` (e.g. from an earlier version of this project that
@@ -65,6 +82,61 @@ newer helper functions, `app.py` defines a working equivalent internally
 so the app keeps running rather than crashing. Updating `cities.py` (and
 everything else) to the latest version, together, is still the right
 long-term fix.
+
+## 🐛 Fixed: a crash on the first login click (StreamlitAPIException)
+
+Logging in used to crash on the very first click with a
+`StreamlitAPIException` — clicking "Log In" a second time appeared to
+"work," but only because the crash had already happened silently and the
+page was showing stale/default data, not because anything was actually
+fixed.
+
+**Root cause:** Streamlit refuses to let you write to
+`st.session_state[key]` if the widget with that `key` has *already been
+drawn earlier in the same script run* — it raises `StreamlitAPIException:
+... cannot be modified after widget ... is instantiated`. The sidebar's
+city and ZIP widgets render near the top of every run; the Home page's
+login form renders further down, *after* them. The old login handler
+called `accounts.apply_account_to_session(...)` directly from inside that
+form — writing straight into the sidebar's city/ZIP/profile widget keys
+after those widgets had already been drawn in that same run. Same root
+cause, same fix, also applied to the sidebar's "go to this saved
+location" button, which had the identical latent bug (just not yet
+clicked in a way that surfaced it).
+
+**The fix defers those writes to the start of the *next* run, before any
+widget exists yet:**
+
+- A button click (login, or "go to" a saved location) now just records
+  *intent* — `accounts.queue_apply_on_next_run(username)` or
+  `user_profile.queue_location_apply(loc)` — both of which only touch a
+  plain, non-widget session key, then calls `st.rerun()`.
+- At the very top of `app.py`, *before* the sidebar creates any widget,
+  `accounts.consume_pending_apply(...)` and
+  `user_profile.consume_pending_location(...)` check for a queued
+  request and apply it right there — safe, because no widget has been
+  instantiated yet this run.
+- A related interaction bug turned up while testing this fix: applying a
+  saved city+ZIP *together* was immediately being mistaken by the
+  sidebar's own "reset ZIP when you switch cities" logic for a plain user
+  city switch, which then wiped the just-applied ZIP back to that city's
+  generic default a moment later. Fixed by having the apply functions
+  also update the same "last city ZIP was set for" tracker
+  (`ZIP_CITY_CONTEXT_KEY`) the reset logic checks.
+
+`homepage.render_homepage()` (and `render_logged_in()` specifically) also
+got a defensive pass per this fix: every value it receives — city,
+neighborhood, ZIP, the briefing text, the transit/AQI dictionaries, even
+the current-time object — is normalized to a safe default if it's
+`None`/empty/the wrong type, so a missing or not-yet-ready piece renders
+as a slightly less complete page instead of a `KeyError`/`TypeError`.
+
+This was caught with a test that replays the exact failure sequence:
+render the sidebar (simulating its widgets already existing this run),
+queue a login/location apply, confirm the queue never touches a widget
+key mid-script, run again, and confirm the queued city/ZIP/profile (and
+only those) land correctly on the next run — including the "applied
+together" case that exposed the ZIP-reset interaction above.
 
 ## 🏠 Home page & accounts
 
@@ -234,6 +306,68 @@ pick a real station pair this demo's simplified network doesn't happen to
 connect (directly or with one transfer), the app says so plainly rather than
 guessing — that's expected and by design, not a bug.
 
+## ⚡ Today's Outlook, Pollen Index, and one-click export
+
+The dashboard's original small "🧭 Local Daily Companion" header banner has
+been replaced by a bigger, bolder **outlook banner** — the actual "aha"
+moment of the page. It answers one question — *should I even worry about
+today?* — before you've looked at a single tab, using the same colors a
+transit or health app uses for status: bright green for "go," amber for
+"keep an eye out," red for "take it slow."
+
+**How the verdict is computed (`outlook.py`):** transit's delay level, the
+AQI category, and today's pollen category are each mapped onto the same
+three-tier scale (good / caution / hazard), and the overall banner shows
+the *worst* of the three — a single hazard (a major delay, unhealthy air,
+extreme pollen) drives the headline, not an average that could quietly
+bury it. The subtext line underneath is built from the same real numbers,
+e.g. *"Air quality is great · 0 transit delays · Pollen is low."* Three
+matching vivid tiles just below the banner break the same verdict out by
+category (🚌 Transit / 🌬️ Air Quality / 🌼 Pollen), each independently
+color-coded, so a single rough spot is visible even when the other two are
+fine. This exact same banner + tiles also appear on a logged-in user's
+personalized Home page — never a separate, possibly-contradicting verdict.
+
+**🌼 Pollen Index (`pollen.py`):** there's no broadly available free
+real-time pollen API the way OpenAQ covers air quality, so — same honesty
+pattern as the rest of this app — pollen is clearly-labeled **simulated**
+data. It isn't random noise: the baseline follows a realistic Northern
+Hemisphere seasonal curve (tree pollen peaks in spring, grass in early
+summer, ragweed/weed pollen in late summer/early fall, mostly mold
+spores in winter) and is deterministic per city + ZIP + calendar day, so
+it reads as "today's forecast" rather than reshuffling on every page
+reload — but it genuinely changes from one real day to the next, which is
+the honest behavior for something that does vary daily in real life. Uses
+the same 0-12 scale as real pollen indices (Pollen.com / the National
+Allergy Bureau).
+
+**🔔 Daily Briefing Preferences:** a "Remind me every morning" toggle plus
+a preferred time, in the sidebar. **Read this note in the app itself, not
+just here:** a browser tab running Streamlit cannot push a real
+notification to your phone or send an email while it isn't open — that
+would need a real backend with its own scheduler and a push/email
+provider, which this project intentionally doesn't have (no fake "sent!"
+toast that nothing backs up). What this setting *actually* does: it
+decides whether the Home page shows a morning-reminder framing, and it
+pre-fills the time used by the calendar export below, so the exported
+event fires at the time you actually asked for, every day, once it's in
+your own calendar app.
+
+**📤 Save or share today's outlook:** an expander on the dashboard with two
+real, working exports (`exports.py`), both built from the exact same
+numbers as the banner above them — nothing here is a placeholder:
+
+- **⬇️ Download Daily Commute Calendar Event (.ics)** — a real RFC 5545
+  calendar file (`VCALENDAR`/`VEVENT`/`VALARM`) that repeats daily
+  (`RRULE:FREQ=DAILY`) at your preferred reminder time, with a 15-minute
+  advance alarm and today's actual Daily Briefing sentence in the event
+  description. Import it into Google Calendar, Apple Calendar, or Outlook
+  and your own calendar app handles the real, recurring alarm from there.
+- **📋 Copy today's summary** — a plain-text block (via `st.code()`'s
+  built-in copy icon) with today's headline, transit/AQI/pollen numbers,
+  and the full Daily Briefing sentence, ready to paste into a text message
+  or note.
+
 ## What's real, and what's simulated (read this first)
 
 Every **city, transit agency, rail line, and station name** in this app is
@@ -284,6 +418,10 @@ What's **simulated**, and clearly labeled as such in the UI:
   fails for any reason (no nearby station, network issue, timeout).
   Every AQI number — live or simulated — is computed with the EPA's real,
   current (2024-revised) AQI breakpoint formula, not a made-up scale.
+- **Pollen Index.** There's no broadly available free real-time pollen API
+  the way OpenAQ covers air quality, so this is always clearly-labeled
+  simulated data, following a realistic seasonal curve per city/ZIP/day —
+  see "Today's Outlook, Pollen Index, and one-click export" above.
 
 Community-flagged accessibility reports, saved locations, your sensitivity
 profile, and user accounts (including saved routes) are all real user
@@ -303,8 +441,11 @@ local_daily_companion/
 │                          #   ZIP validation/lookup (cities.is_valid_zip / lookup_neighborhood)
 ├── transit.py             # Tab 1 — real agencies/lines/stations, routing, simulated live data, reports
 ├── air_quality.py         # Tab 2 — OpenAQ integration, EPA AQI math, simulated fallback
-├── user_profile.py        # Saved locations + sensitivity profile + personal alert badges
+├── user_profile.py        # Saved locations + sensitivity profile + personal alert badges + notification prefs
 ├── briefing.py            # Daily Briefing sentence builder (pure logic, easy to unit-test)
+├── outlook.py             # Rolls transit+AQI+pollen into one good/caution/hazard verdict (pure logic)
+├── pollen.py              # Simulated daily Pollen Index, seasonal curve, per city/ZIP/day
+├── exports.py             # .ics calendar event + plain-text daily summary builders (pure logic)
 ├── charts.py              # Plotly chart builders
 ├── requirements.txt
 └── .streamlit/config.toml # Custom theme
@@ -468,3 +609,18 @@ combination. Still, since the actual Streamlit/Plotly rendering, the live
 OpenAQ request/response shape, and the real `st.context.timezone` browser
 API couldn't be exercised for real, give the app a look after your first
 `streamlit run` and a quick OpenAQ key test if you add one.*
+
+*This same offline harness was extended for the visual overhaul, Pollen
+Index, outlook banner, and export features: `pollen.simulate_pollen()` was
+checked for determinism (same city/ZIP/day → identical reading), for
+tracking the intended seasonal curve (spring tree pollen reads higher than
+winter mold, for example), and for tailoring differently across ZIPs;
+`outlook.compute_outlook()` was checked against known-good, known-bad, and
+known-mixed transit/AQI/pollen combinations to confirm the "worst of the
+three tiers wins" rule and that missing data reads as caution rather than
+crashing or silently reading as "all clear"; `exports.build_commute_ics()`
+was checked for a valid `VCALENDAR`/`VEVENT`/`VALARM` structure, the daily
+`RRULE`, CRLF line endings, and correct RFC 5545 escaping of commas/newlines
+in the description; and the full `app.py` was re-run across all 18 cities,
+both views, and both notification-preference states with the new banner,
+tiles, and export section wired in, with no crash in any combination.*

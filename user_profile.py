@@ -10,7 +10,7 @@ app restarts (see README for how to make either of these persistent with
 a small SQLite file, if you want that later).
 """
 
-from datetime import datetime
+from datetime import datetime, time
 
 import streamlit as st
 
@@ -47,6 +47,51 @@ def get_profile() -> dict:
     return {
         opt["key"]: bool(st.session_state.get(PROFILE_KEY_PREFIX + opt["key"], False))
         for opt in SENSITIVITY_OPTIONS
+    }
+
+
+# --------------------------------------------------------------------------
+# Daily Briefing Preferences (morning reminder + export defaults)
+# --------------------------------------------------------------------------
+NOTIFY_ENABLED_KEY = "notify_morning_enabled"
+NOTIFY_TIME_KEY = "notify_morning_time"
+DEFAULT_NOTIFY_TIME = time(7, 30)
+
+
+def render_notification_preferences():
+    """A morning-reminder toggle + preferred time, in the sidebar.
+
+    HONESTY NOTE: a browser tab running Streamlit has no way to push a real
+    notification to your phone or send an email while it isn't open --
+    that needs a backend with its own scheduler and a push/email provider,
+    which this project doesn't have. Rather than fake a "notification
+    sent!" toast that nothing backs up, this setting does two real things
+    instead: it decides whether the homepage greets you with a morning
+    reminder banner, and it pre-fills the reminder time used when you build
+    the calendar file below in "Save or share today's outlook" -- so the
+    .ics event actually fires at the time you asked for, every day, once
+    it's in your own calendar app.
+    """
+    st.markdown("#### 🔔 Daily Briefing Preferences")
+    st.checkbox(
+        "Remind me every morning", value=False, key=NOTIFY_ENABLED_KEY,
+        help="Controls the in-app morning reminder and the default time for the calendar export below — "
+             "see the note under Export for why this app can't send a real push notification or email.",
+    )
+    if st.session_state.get(NOTIFY_ENABLED_KEY):
+        st.time_input("Remind me at", value=DEFAULT_NOTIFY_TIME, key=NOTIFY_TIME_KEY)
+        st.caption(
+            "No real push or email goes out from here — download the daily calendar event below and "
+            "your own calendar app will handle the actual alarm at this time, every day."
+        )
+
+
+def get_notification_prefs() -> dict:
+    """{'enabled': bool, 'time': datetime.time} -- reads straight from the
+    widgets above, so there's exactly one source of truth."""
+    return {
+        "enabled": bool(st.session_state.get(NOTIFY_ENABLED_KEY, False)),
+        "time": st.session_state.get(NOTIFY_TIME_KEY, DEFAULT_NOTIFY_TIME),
     }
 
 
@@ -91,7 +136,7 @@ def remove_location(label: str):
     ]
 
 
-def apply_location(loc: dict, city_key: str, zip_key: str):
+def apply_location(loc: dict, city_key: str, zip_key: str, zip_city_context_key: str = None):
     """Push a saved location into the sidebar's own city/ZIP widget state
     (by key) so those widgets pick it up automatically on the next rerun.
 
@@ -100,9 +145,56 @@ def apply_location(loc: dict, city_key: str, zip_key: str):
     `'>=' not supported between instances of 'str' and 'int'` crash when a
     stray string and an index-based comparison collided. Since ZIP_KEY is
     always a string now, applying a saved location is just this one line.
+
+    IMPORTANT -- widget-key ordering: Streamlit raises a
+    StreamlitAPIException ("... cannot be modified after widget ... is
+    instantiated") if `st.session_state[key]` is written AFTER the widget
+    with that key has already been drawn in the SAME script run. Call this
+    function directly only from a point that runs BEFORE the city/ZIP
+    widgets are created. From a button click inside
+    render_saved_locations_sidebar() below -- which runs AFTER those
+    widgets, later in the same sidebar block -- use queue_location_apply()
+    instead, which defers this exact call to the start of the NEXT run via
+    consume_pending_location().
+
+    `zip_city_context_key`, when given, is also set to the applied city.
+    app.py's sidebar resets ZIP_KEY to a generic default whenever it
+    notices the selected city doesn't match that context key (i.e. "the
+    user just switched cities") -- without also updating it here, applying
+    a saved location's city+ZIP together would immediately look like
+    exactly that kind of plain city switch and get the freshly applied ZIP
+    wiped back to the new city's default a moment later.
     """
     st.session_state[city_key] = loc["city"]
     st.session_state[zip_key] = loc["zip"]
+    if zip_city_context_key:
+        st.session_state[zip_city_context_key] = loc["city"]
+
+
+# --------------------------------------------------------------------------
+# Deferred apply -- see the big warning in apply_location() above.
+# --------------------------------------------------------------------------
+PENDING_LOCATION_KEY = "_pending_location_apply"
+
+
+def queue_location_apply(loc: dict):
+    """Record that this saved location should be pushed onto the sidebar's
+    city/ZIP widget keys at the START of the next script run, before those
+    widgets exist. Call this (not apply_location directly) from the "go to
+    this location" button below, then call `st.rerun()`."""
+    st.session_state[PENDING_LOCATION_KEY] = loc
+
+
+def consume_pending_location(city_key: str, zip_key: str, zip_city_context_key: str = None) -> bool:
+    """Call this ONCE, at the very top of app.py, before any sidebar
+    widget is created. Applies (and clears) a pending
+    queue_location_apply() request, if any. Returns True if one was
+    applied."""
+    loc = st.session_state.pop(PENDING_LOCATION_KEY, None)
+    if loc:
+        apply_location(loc, city_key, zip_key, zip_city_context_key)
+        return True
+    return False
 
 
 def render_saved_locations_sidebar(current_city: str, current_zip: str, current_neighborhood: str,
@@ -122,7 +214,7 @@ def render_saved_locations_sidebar(current_city: str, current_zip: str, current_
                 f"{emoji} {loc['label']} — {loc['neighborhood']}, {city_short}",
                 key=f"loc_go_{loc['label']}", use_container_width=True,
             ):
-                apply_location(loc, city_key, zip_key)
+                queue_location_apply(loc)
                 st.rerun()
         with del_col:
             if st.button("✕", key=f"loc_del_{loc['label']}", help=f"Remove '{loc['label']}'"):

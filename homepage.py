@@ -20,25 +20,24 @@ import streamlit as st
 import accounts
 
 
-def _quick_chip(label: str, value_str: str, note: str, accent: str):
+def _status_tile(label: str, value_str: str, note: str, tier: str = "caution"):
+    """Same vivid color-coded tile used on the main dashboard (see
+    outlook.py / app.py's status-tile CSS) -- scaled down slightly so four
+    fit comfortably in a row here."""
+    tier = tier if tier in ("good", "caution", "hazard") else "caution"
     st.markdown(
         f"""
-        <div class="metric-card" style="--accent:{accent}">
-            <div class="mc-label">{label}</div>
-            <div class="mc-value" style="font-size:1.35rem;">{value_str}</div>
-            <div class="mc-note">{note}</div>
+        <div class="status-tile tile-{tier}" style="min-height:104px; padding:14px 16px;">
+            <div class="tile-label">{label}</div>
+            <div class="tile-value" style="font-size:1.3rem;">{value_str}</div>
+            <div class="tile-note">{note}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _apply_account_and_go_home(username: str, city_key: str, zip_key: str, profile_key_prefix: str):
-    accounts.apply_account_to_session(username, city_key, zip_key, profile_key_prefix)
-    st.session_state["view"] = "home"
-
-
-def render_logged_out(city_key: str, zip_key: str, profile_key_prefix: str):
+def render_logged_out():
     st.markdown(
         """
         <div class="hero-banner">
@@ -74,7 +73,20 @@ def render_logged_out(city_key: str, zip_key: str, profile_key_prefix: str):
             if submitted:
                 ok, msg = accounts.log_in(u, p)
                 if ok:
-                    _apply_account_and_go_home(u.strip(), city_key, zip_key, profile_key_prefix)
+                    # Don't push this account's saved city/ZIP/profile onto
+                    # the sidebar's widget keys HERE -- by the time this
+                    # form's submit code runs, the sidebar (and its
+                    # city/ZIP widgets) has ALREADY rendered earlier in
+                    # this same script run, and Streamlit raises a
+                    # StreamlitAPIException ("... cannot be modified after
+                    # widget ... is instantiated") if you write to a
+                    # widget's session_state key after that widget has
+                    # already been drawn this run. Queuing it instead defers
+                    # the actual write to the very top of app.py's NEXT
+                    # run, before any widget exists yet -- see
+                    # accounts.queue_apply_on_next_run().
+                    accounts.queue_apply_on_next_run(u.strip())
+                    st.session_state["view"] = "home"
                     st.success(msg)
                     st.rerun()
                 else:
@@ -108,24 +120,69 @@ def render_logged_out(city_key: str, zip_key: str, profile_key_prefix: str):
             st.rerun()
 
 
-def render_logged_in(username: str, city: str, neighborhood: str, zip_code: str, briefing_text: str,
-                      transit_status: dict, aqi_reading: dict, city_now):
+def render_logged_in(username: str, city: str = None, neighborhood: str = None, zip_code: str = None,
+                      briefing_text: str = None, transit_status: dict = None, aqi_reading: dict = None,
+                      pollen_reading: dict = None, outlook_data: dict = None, city_now=None):
+    """Renders the personalized 'Welcome back' dashboard.
+
+    Defensive by design: this is called with values computed earlier in
+    app.py's own script run, which should always be populated by the time
+    this runs -- but a first-ever run, a mid-refactor edit, or some other
+    unforeseen ordering hiccup could hand this None/empty values instead
+    of real ones. Every value below is normalized to a safe default rather
+    than trusted blindly, so a missing piece degrades to a slightly less
+    complete-looking page instead of a KeyError/TypeError crash.
+    """
     account = accounts.get_account(username)
+
+    city = city or "your saved city"
+    neighborhood = neighborhood or ""
+    zip_code = zip_code or ""
+    briefing_text = briefing_text or "Your daily briefing will appear here once your city and ZIP are set."
+    transit_status = transit_status if isinstance(transit_status, dict) else {}
+    aqi_reading = aqi_reading if isinstance(aqi_reading, dict) else {}
+    pollen_reading = pollen_reading if isinstance(pollen_reading, dict) else {}
+    outlook_data = outlook_data if isinstance(outlook_data, dict) else {}
+    tiers = outlook_data.get("tiers", {})
+    if city_now is None:
+        from datetime import datetime
+        city_now = datetime.now()
+
     try:
         tz_suffix = f" {city_now:%Z}".rstrip()
     except Exception:
         tz_suffix = ""
+    try:
+        time_str = f"{city_now:%I:%M %p}"
+    except Exception:
+        time_str = "—"
 
-    st.markdown(
-        f"""
-        <div class="hero-banner">
-            <h1>👋 Welcome back, {username}!</h1>
-            <p>Here's what's happening right now in your saved city — {city} ({neighborhood},
-            {zip_code}), {city_now:%I:%M %p}{tz_suffix}.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    detail_bits = [b for b in (neighborhood, zip_code) if b]
+    location_detail = f" ({', '.join(detail_bits)})" if detail_bits else ""
+
+    if outlook_data.get("headline"):
+        colors = outlook_data.get("colors", {"gradient": "linear-gradient(120deg, #2a78d6, #4a3aa7)", "text": "#ffffff", "sub_text": "rgba(255,255,255,0.9)"})
+        st.markdown(
+            f"""
+            <div class="outlook-banner" style="background:{colors['gradient']}; color:{colors['text']}">
+                <div class="outlook-eyebrow">Welcome back, {username} · {city}</div>
+                <h1>{outlook_data['headline']}</h1>
+                <p class="outlook-sub">{outlook_data.get('subtext', '')}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+            <div class="hero-banner">
+                <h1>👋 Welcome back, {username}!</h1>
+                <p>Here's what's happening right now in your saved city — {city}{location_detail},
+                {time_str}{tz_suffix}.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown(
         f"""
@@ -137,23 +194,36 @@ def render_logged_in(username: str, city: str, neighborhood: str, zip_code: str,
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         level = transit_status.get("level")
-        level_label = {"smooth": "✅ Smooth", "minor": "🟡 Minor delays", "major": "🔴 Major delays"}.get(level, "❔ Unknown")
-        accent = {"smooth": "#0ca30c", "minor": "#c98500", "major": "#d03b3b"}.get(level, "#898781")
+        level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(level, "Unknown")
         outages = transit_status.get("elevator_outages", 0)
-        _quick_chip("🚌 Transit right now", level_label, f"{outages} elevator outage(s) reported", accent)
+        _status_tile("🚌 Transit", level_label, f"{outages} elevator outage(s) reported", tiers.get("transit"))
     with c2:
         aqi_val = aqi_reading.get("aqi")
-        _quick_chip(
+        _status_tile(
             "🌬️ Air quality", f"{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'}",
-            aqi_reading.get("label", "No data"), aqi_reading.get("color", "#898781"),
+            aqi_reading.get("label", "No data"), tiers.get("aqi"),
         )
     with c3:
+        pollen_val = pollen_reading.get("value")
+        _status_tile(
+            "🌼 Pollen", f"{pollen_reading.get('emoji', '❔')} {pollen_val if pollen_val is not None else '—'}",
+            pollen_reading.get("category", "No data"), tiers.get("pollen"),
+        )
+    with c4:
         saved_routes = account["saved_routes"] if account else []
-        _quick_chip("⭐ Saved routes", str(len(saved_routes)),
-                    "Quick trips saved from the trip planner", "#4a3aa7")
+        st.markdown(
+            f"""
+            <div class="metric-card" style="min-height:104px; padding:14px 16px; --accent:#4a3aa7;">
+                <div class="mc-label">⭐ Saved routes</div>
+                <div class="mc-value" style="font-size:1.3rem;">{len(saved_routes)}</div>
+                <div class="mc-note">Quick trips saved from the trip planner</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     if account and account["saved_routes"]:
         st.markdown("#### ⭐ Your saved routes")
@@ -171,16 +241,24 @@ def render_logged_in(username: str, city: str, neighborhood: str, zip_code: str,
         st.rerun()
 
 
-def render_homepage(city_key: str, zip_key: str, profile_key_prefix: str, city=None, neighborhood=None,
-                     zip_code=None, briefing_text=None, transit_status=None, aqi_reading=None, city_now=None):
+def render_homepage(city=None, neighborhood=None, zip_code=None, briefing_text=None,
+                     transit_status=None, aqi_reading=None, pollen_reading=None,
+                     outlook_data=None, city_now=None):
     """Entry point called from app.py. Branches on login state; the caller
-    supplies the SAME transit_status/aqi_reading/briefing_text objects
-    already computed once for the main dashboard, so the homepage and the
-    dashboard can never show conflicting numbers."""
+    supplies the SAME transit_status/aqi_reading/pollen_reading/outlook_data
+    objects already computed once for the main dashboard, so the homepage
+    and the dashboard can never show conflicting numbers.
+
+    Note: this function no longer needs city_key/zip_key/profile_key_prefix
+    -- applying a just-logged-in account's saved defaults onto those
+    widget keys is queued (accounts.queue_apply_on_next_run) and processed
+    at the very top of app.py's NEXT run instead of during this render;
+    see that function's docstring for why.
+    """
     if accounts.is_logged_in():
         render_logged_in(
             accounts.current_user(), city, neighborhood, zip_code, briefing_text,
-            transit_status, aqi_reading, city_now,
+            transit_status, aqi_reading, pollen_reading, outlook_data, city_now,
         )
     else:
-        render_logged_out(city_key, zip_key, profile_key_prefix)
+        render_logged_out()

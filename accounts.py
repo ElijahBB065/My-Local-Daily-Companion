@@ -140,12 +140,35 @@ def remove_saved_route(username: str, label: str):
         account["saved_routes"] = [r for r in account["saved_routes"] if r["label"] != label]
 
 
-def apply_account_to_session(username: str, city_key: str, zip_key: str, profile_key_prefix: str):
+def apply_account_to_session(username: str, city_key: str, zip_key: str, profile_key_prefix: str,
+                              zip_city_context_key: str = None):
     """Push a just-logged-in (or just-signed-up) user's saved preferences
     into the sidebar's own widget state (by key), the same pattern
     user_profile.apply_location() uses for saved locations -- so the city
     picker, ZIP field, and sensitivity toggles all pick the account's
-    defaults up automatically on the next rerun."""
+    defaults up automatically on the next rerun.
+
+    IMPORTANT -- widget-key ordering: Streamlit raises a
+    StreamlitAPIException ("... cannot be modified after widget ... is
+    instantiated") if `st.session_state[key]` is written AFTER the widget
+    with that key has already been drawn in the SAME script run. Call this
+    function directly only from a point in app.py that runs BEFORE the
+    city/ZIP/profile widgets are created (i.e. before `with st.sidebar:`).
+    From anywhere else -- most notably the Home page's login form, which
+    renders AFTER the sidebar -- use queue_apply_on_next_run() instead,
+    which defers this exact call to the start of the NEXT run via
+    consume_pending_apply(). This is exactly the bug that used to crash
+    the app on the first login click: apply_account_to_session() was being
+    called mid-script, after the sidebar's widgets had already rendered.
+
+    `zip_city_context_key`, when given, is also set to the applied
+    home_city. app.py's sidebar resets ZIP_KEY to a generic default
+    whenever it notices the selected city doesn't match that context key
+    (i.e. "the user just switched cities") -- without also updating it
+    here, applying an account's city+ZIP together would immediately look
+    like exactly that kind of plain city switch and get the freshly
+    applied ZIP wiped back to the new city's default a moment later.
+    """
     account = get_account(username)
     if not account:
         return
@@ -153,3 +176,36 @@ def apply_account_to_session(username: str, city_key: str, zip_key: str, profile
     st.session_state[zip_key] = account["default_zip"]
     st.session_state[profile_key_prefix + "asthma"] = bool(account["profile"].get("asthma", False))
     st.session_state[profile_key_prefix + "wheelchair"] = bool(account["profile"].get("wheelchair", False))
+    if zip_city_context_key:
+        st.session_state[zip_city_context_key] = account["home_city"]
+
+
+# --------------------------------------------------------------------------
+# Deferred apply -- see the big warning in apply_account_to_session() above.
+# --------------------------------------------------------------------------
+PENDING_APPLY_KEY = "_pending_account_username"
+
+
+def queue_apply_on_next_run(username: str):
+    """Record that `username`'s saved city/ZIP/profile should be pushed
+    onto the sidebar's widget keys at the START of the next script run,
+    before those widgets exist. Call this (not apply_account_to_session
+    directly) from anywhere that might run after the sidebar has already
+    rendered this turn -- e.g. the Home page's login form -- then call
+    `st.rerun()`. app.py calls consume_pending_apply() once, at the very
+    top of every run, to actually perform the deferred write."""
+    st.session_state[PENDING_APPLY_KEY] = username
+
+
+def consume_pending_apply(city_key: str, zip_key: str, profile_key_prefix: str,
+                           zip_city_context_key: str = None) -> bool:
+    """Call this ONCE, at the very top of app.py, before any sidebar
+    widget is created. Applies (and clears) a pending
+    queue_apply_on_next_run() request, if any. Returns True if a pending
+    request was found and applied, so callers can log/branch on it if
+    useful (app.py doesn't currently need to)."""
+    username = st.session_state.pop(PENDING_APPLY_KEY, None)
+    if username and get_account(username):
+        apply_account_to_session(username, city_key, zip_key, profile_key_prefix, zip_city_context_key)
+        return True
+    return False
