@@ -160,12 +160,13 @@ def toggle_upvote(community_id: str, post_id: str, identity: str) -> bool:
     community = get_community(community_id)
     if not community:
         return False
-    for post in community["posts"]:
-        if post["id"] == post_id:
-            if identity in post["upvotes"]:
-                post["upvotes"].discard(identity)
+    for post in community.get("posts", []):
+        if post.get("id") == post_id:
+            upvotes = post.setdefault("upvotes", set())
+            if identity in upvotes:
+                upvotes.discard(identity)
                 return False
-            post["upvotes"].add(identity)
+            upvotes.add(identity)
             return True
     return False
 
@@ -176,8 +177,8 @@ def top_issues(community_id: str, n: int = 3) -> list:
     community = get_community(community_id)
     if not community:
         return []
-    issue_posts = [p for p in community["posts"] if p["category"] != "chat"]
-    return sorted(issue_posts, key=lambda p: (len(p["upvotes"]), p["timestamp"]), reverse=True)[:n]
+    issue_posts = [p for p in community.get("posts", []) if p.get("category") != "chat"]
+    return sorted(issue_posts, key=lambda p: (len(p.get("upvotes", set())), p.get("timestamp")), reverse=True)[:n]
 
 
 def official_alerts(transit_status: dict = None, aqi_reading: dict = None, pollen_reading: dict = None) -> list:
@@ -214,10 +215,13 @@ def official_alerts(transit_status: dict = None, aqi_reading: dict = None, polle
 # Streamlit UI
 # --------------------------------------------------------------------------
 def _post_card(post: dict, community_id: str, identity: str):
-    color = CATEGORY_COLORS.get(post["category"], "#898781")
-    label = CATEGORY_LABELS.get(post["category"], "General")
-    upvoted = identity in post["upvotes"]
-    count = len(post["upvotes"])
+    post_id = post.get("id", "")
+    category = post.get("category", "chat")
+    color = CATEGORY_COLORS.get(category, "#898781")
+    label = CATEGORY_LABELS.get(category, "General")
+    upvotes = post.get("upvotes", set())
+    upvoted = identity in upvotes
+    count = len(upvotes)
     try:
         ts = f"{post['timestamp']:%b %d — %I:%M %p}"
     except Exception:
@@ -226,19 +230,20 @@ def _post_card(post: dict, community_id: str, identity: str):
     st.markdown(
         f"""
         <div class="report-card" style="--accent:{color}">
-            <div class="rc-top"><span>{label}</span><span>{post['author']}</span></div>
-            <div class="rc-details">{post['text']}</div>
+            <div class="rc-top"><span>{label}</span><span>{post.get('author', 'Someone')}</span></div>
+            <div class="rc-details">{post.get('text', '')}</div>
             <div class="rc-meta">{ts}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    btn_col, _ = st.columns([1, 4])
+    btn_col, _ = st.columns([1, 4], gap="small")
     with btn_col:
         btn_label = f"✅ Me Too · {count}" if upvoted else f"👍 Me Too · {count}"
-        if st.button(btn_label, key=f"upvote_{community_id}_{post['id']}", use_container_width=True):
-            toggle_upvote(community_id, post["id"], identity)
-            st.rerun()
+        # on_click keeps the upvote feeling instant -- one state transition per click,
+        # no intermediate render of the pre-toggle count.
+        st.button(btn_label, key=f"upvote_{community_id}_{post_id}", use_container_width=True,
+                   on_click=toggle_upvote, args=(community_id, post_id, identity))
 
 
 def _digest_item(text: str, accent: str = "#898781"):
@@ -262,10 +267,12 @@ def render_create_prompt(city: str, neighborhood: str, identity: str, now: datet
         """,
         unsafe_allow_html=True,
     )
-    if st.button(f"➕ Create {neighborhood} Community", type="primary"):
-        cid = create_community(city, neighborhood, created_by=identity, now=now)
+
+    def _create_and_clear_override():
+        create_community(city, neighborhood, created_by=identity, now=now)
         st.session_state.pop(VIEW_OVERRIDE_KEY, None)
-        st.rerun()
+
+    st.button(f"➕ Create {neighborhood} Community", type="primary", on_click=_create_and_clear_override)
 
 
 def render_browse_and_join(active_id: str, identity: str, default_label: str):
@@ -280,45 +287,51 @@ def render_browse_and_join(active_id: str, identity: str, default_label: str):
         )
         search_lower = search.strip().lower()
         for community in communities:
-            haystack = f"{community['name']} {community['city']} {community['neighborhood']}".lower()
+            name = community.get("name", "Unnamed Community")
+            c_city = community.get("city", "")
+            c_id = community.get("id", "")
+            haystack = f"{name} {c_city} {community.get('neighborhood', '')}".lower()
             if search_lower and search_lower not in haystack:
                 continue
-            member_count = len(community["members"])
-            post_count = len(community["posts"])
-            is_active = community["id"] == active_id
-            view_col, join_col, meta_col = st.columns([2, 2, 3])
+            member_count = len(community.get("members", set()))
+            post_count = len(community.get("posts", []))
+            is_active = c_id == active_id
+            view_col, join_col, meta_col = st.columns([2, 2, 3], gap="small")
             with view_col:
                 st.button(
-                    f"{'📍 Viewing' if is_active else '👀 View'} — {community['name']}",
-                    key=f"view_{community['id']}", use_container_width=True, disabled=is_active,
-                    on_click=lambda cid=community["id"]: st.session_state.__setitem__(VIEW_OVERRIDE_KEY, cid),
+                    f"{'📍 Viewing' if is_active else '👀 View'} — {name}",
+                    key=f"view_{c_id}", use_container_width=True, disabled=is_active,
+                    on_click=lambda cid=c_id: st.session_state.__setitem__(VIEW_OVERRIDE_KEY, cid),
                 )
             with join_col:
-                already = identity in community["members"]
+                already = identity in community.get("members", set())
                 st.button(
                     "🤝 Joined" if already else "🤝 Join",
-                    key=f"join_{community['id']}", use_container_width=True, disabled=already,
-                    on_click=lambda cid=community["id"]: join_community(cid, identity),
+                    key=f"join_{c_id}", use_container_width=True, disabled=already,
+                    on_click=lambda cid=c_id: join_community(cid, identity),
                 )
             with meta_col:
-                st.caption(f"{community['city']} · {member_count} member(s) · {post_count} post(s)")
+                st.caption(f"{c_city} · {member_count} member(s) · {post_count} post(s)")
 
         if st.session_state.get(VIEW_OVERRIDE_KEY):
             st.button(f"↩️ Back to my town ({default_label})", on_click=lambda: st.session_state.pop(VIEW_OVERRIDE_KEY, None))
 
 
 def render_message_board(community: dict, identity: str):
-    st.markdown(f"#### 📋 {community['name']} message board")
-    st.caption(f"{len(community['members'])} member(s) · {len(community['posts'])} post(s) this session.")
+    community_id = community.get("id", "")
+    members = community.get("members", set())
+    posts_all = community.get("posts", [])
+    st.markdown(f"#### 📋 {community.get('name', 'Community')} message board")
+    st.caption(f"{len(members)} member(s) · {len(posts_all)} post(s) this session.")
 
-    with st.form(f"new_post_{community['id']}", clear_on_submit=True):
+    with st.form(f"new_post_{community_id}", clear_on_submit=True):
         category = st.selectbox(
             "Category", options=CATEGORY_KEYS, format_func=lambda k: CATEGORY_LABELS[k],
         )
         text = st.text_area("What's going on?", placeholder="e.g. Elevator at Main St station has been out since 8am...")
         submitted = st.form_submit_button("📮 Post to the community", use_container_width=True, type="primary")
         if submitted:
-            if add_post(community["id"], author=identity, category=category, text=text):
+            if add_post(community_id, author=identity, category=category, text=text):
                 st.success("Posted!")
                 st.rerun()
             else:
@@ -327,28 +340,31 @@ def render_message_board(community: dict, identity: str):
     filter_choice = st.radio(
         "Filter", options=["All"] + CATEGORY_KEYS, horizontal=True,
         format_func=lambda k: "All" if k == "All" else CATEGORY_LABELS[k],
-        key=f"community_filter_{community['id']}",
+        key=f"community_filter_{community_id}",
     )
-    posts = community["posts"] if filter_choice == "All" else [p for p in community["posts"] if p["category"] == filter_choice]
+    posts = posts_all if filter_choice == "All" else [p for p in posts_all if p.get("category") == filter_choice]
 
     if not posts:
         st.caption("No posts in this category yet — be the first.")
     for post in posts:
-        _post_card(post, community["id"], identity)
+        _post_card(post, community_id, identity)
 
 
 def render_digest(community: dict, transit_status: dict, aqi_reading: dict, pollen_reading: dict):
     st.markdown("#### 📊 Community & Alert Digest")
 
     st.markdown("**🔥 Top crowd-reported issues**")
-    issues = top_issues(community["id"], n=3)
+    issues = top_issues(community.get("id", ""), n=3)
     if not issues:
         _digest_item("No crowd-reported issues yet — the community's first reports will show up here.", "#898781")
     else:
         for post in issues:
-            label = CATEGORY_LABELS.get(post["category"], "General")
-            snippet = post["text"] if len(post["text"]) <= 90 else post["text"][:87] + "…"
-            _digest_item(f"{label} · 👍 {len(post['upvotes'])}<br>{snippet}", CATEGORY_COLORS.get(post["category"], "#898781"))
+            category = post.get("category", "chat")
+            text = post.get("text", "")
+            label = CATEGORY_LABELS.get(category, "General")
+            snippet = text if len(text) <= 90 else text[:87] + "…"
+            upvote_count = len(post.get("upvotes", set()))
+            _digest_item(f"{label} · 👍 {upvote_count}<br>{snippet}", CATEGORY_COLORS.get(category, "#898781"))
 
     st.markdown("**📡 Official alerts right now**")
     alerts = official_alerts(transit_status, aqi_reading, pollen_reading)
@@ -407,10 +423,16 @@ def render_community_tab(city: str, neighborhood: str, zip_code: str = None, tra
         # (see render_browse_and_join), which is what makes "join" a meaningful action there.
         join_community(active_id, identity)
 
-    board_col, digest_col = st.columns([2, 1])
+    board_col, digest_col = st.columns([2, 1], gap="medium")
     with board_col:
-        render_message_board(active_community, identity)
+        try:
+            render_message_board(active_community, identity)
+        except Exception:
+            st.warning("The message board is temporarily unavailable — your posts and upvotes are safe, try refreshing.")
     with digest_col:
-        render_digest(active_community, transit_status, aqi_reading, pollen_reading)
+        try:
+            render_digest(active_community, transit_status, aqi_reading, pollen_reading)
+        except Exception:
+            st.warning("The digest panel is temporarily unavailable.")
 
     render_browse_and_join(active_id, identity, default_label=neighborhood)

@@ -726,16 +726,25 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
     routable_stations = get_routable_stations(city)
 
     if logged_in_user:
-        from accounts import get_account  # local import avoids a circular import at module load
-        account = get_account(logged_in_user)
-        saved_here = [r for r in (account["saved_routes"] if account else []) if r["city"] == city]
+        try:
+            from accounts import get_account  # local import avoids a circular import at module load
+            account = get_account(logged_in_user)
+        except Exception:
+            account = None
+        saved_here = [r for r in (account.get("saved_routes", []) if account else []) if r.get("city") == city]
         if saved_here:
             with st.expander(f"⭐ Your saved {city} routes ({len(saved_here)})", expanded=False):
                 for r in saved_here:
-                    if st.button(f"▶️ {r['label']}", key=f"apply_route_{city}_{r['label']}", use_container_width=True):
-                        st.session_state[f"route_origin_{city}"] = r["origin"]
-                        st.session_state[f"route_dest_{city}"] = r["destination"]
-                        st.rerun()
+                    label = r.get("label", "Saved route")
+
+                    def _apply_saved_route(origin=r.get("origin"), destination=r.get("destination")):
+                        # on_click callback -- runs before the rerun, so it's always safe
+                        # to write directly to these widget-bound keys here, no queue needed.
+                        st.session_state[f"route_origin_{city}"] = origin
+                        st.session_state[f"route_dest_{city}"] = destination
+
+                    st.button(f"▶️ {label}", key=f"apply_route_{city}_{label}", use_container_width=True,
+                              on_click=_apply_saved_route)
 
     if len(routable_stations) < 2:
         st.info("Not enough curated stations for this city yet to plan a route.")
@@ -750,10 +759,15 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
                 index=default_dest_idx, key=f"route_dest_{city}",
             )
 
-        route = get_route(city, origin_station, destination_station, seed, now=now)
+        try:
+            route = get_route(city, origin_station, destination_station, seed, now=now)
+        except Exception:
+            route = {
+                "found": False, "note": "Couldn't compute a route right now — please try a different station pair.",
+            }
 
-        if not route["found"]:
-            st.warning(route["note"])
+        if not route.get("found"):
+            st.warning(route.get("note", "No route found."))
         else:
             lines_str = " → ".join(route["lines_used"]) if route["lines_used"] else "—"
             delay = route["delay_minutes"] or 0
@@ -869,6 +883,4 @@ def render_transit_tab(city: str, neighborhood: str, seed: int = None, accessibi
                 unsafe_allow_html=True,
             )
             if not report["resolved"]:
-                if st.button("Mark resolved", key=f"resolve_{i}"):
-                    resolve_report(i)
-                    st.rerun()
+                st.button("Mark resolved", key=f"resolve_{i}", on_click=resolve_report, args=(i,))

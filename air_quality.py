@@ -339,13 +339,25 @@ def get_current_reading(city: str, zip_code: str, lat: float, lon: float, now: d
 def render_air_quality_tab(city: str, zip_code: str, neighborhood: str, lat: float, lon: float, reading: dict = None):
     import charts  # local import keeps charts.py's own imports lightweight
 
-    if reading is None:
-        reading = get_current_reading(city, zip_code, lat, lon)
+    try:
+        if reading is None:
+            reading = get_current_reading(city, zip_code, lat, lon)
+    except Exception:
+        reading = None
+    reading = reading if isinstance(reading, dict) else {}
 
-    aqi_val, label, color, emoji = reading["aqi"], reading["label"], reading["color"], reading["emoji"]
-    risk = reading["risk"]
+    # Every field below is read with .get() and a sensible default -- this function can be
+    # handed an incomplete fallback dict (e.g. from app.py's own exception handler when the
+    # live/simulated reading itself failed), and it should degrade to "No data" placeholders
+    # rather than raise a KeyError on top of whatever already went wrong upstream.
+    aqi_val = reading.get("aqi")
+    label = reading.get("label", "No data")
+    color = reading.get("color", INK_MUTED_FALLBACK)
+    emoji = reading.get("emoji", "❔")
+    risk = reading.get("risk") or asthma_risk(None)
+    source_badge = reading.get("source_badge", "🧪 Air quality data unavailable right now.")
 
-    st.markdown(f'<div class="companion-banner">{reading["source_badge"]}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="companion-banner">{source_badge}</div>', unsafe_allow_html=True)
 
     st.markdown(
         f"""
@@ -360,33 +372,42 @@ def render_air_quality_tab(city: str, zip_code: str, neighborhood: str, lat: flo
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        _metric_card("PM2.5", _fmt(reading["pm25"], "µg/m³"), "Fine particles — traffic, smoke, industry", "#2a78d6")
+        _metric_card("PM2.5", _fmt(reading.get("pm25"), "µg/m³"), "Fine particles — traffic, smoke, industry", "#2a78d6")
     with c2:
-        _metric_card("PM10", _fmt(reading["pm10"], "µg/m³"), "Coarser dust & pollen particles", "#4a3aa7")
+        _metric_card("PM10", _fmt(reading.get("pm10"), "µg/m³"), "Coarser dust & pollen particles", "#4a3aa7")
     with c3:
-        _metric_card("Ozone (O₃)", _fmt(reading["o3_ppb"], "ppb", 0), "Forms in sunlight — usually worst midafternoon", "#1baf7a")
+        _metric_card("Ozone (O₃)", _fmt(reading.get("o3_ppb"), "ppb", 0), "Forms in sunlight — usually worst midafternoon", "#1baf7a")
 
     st.markdown(
         f"""
-        <div class="risk-card" style="--accent:{risk['color']}">
-            <div class="risk-top">{risk['emoji']} Asthma Hazard Risk: <b>{risk['level']}</b></div>
-            <div class="risk-advice">{risk['advice']}</div>
+        <div class="risk-card" style="--accent:{risk.get('color', INK_MUTED_FALLBACK)}">
+            <div class="risk-top">{risk.get('emoji', '❔')} Asthma Hazard Risk: <b>{risk.get('level', 'Unknown')}</b></div>
+            <div class="risk-advice">{risk.get('advice', 'No advice available right now.')}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.caption(DISCLAIMER)
-    try:
-        tz_suffix = f" {reading['as_of']:%Z}".rstrip()
-    except Exception:
-        tz_suffix = ""
-    st.caption(f"📅 As of {reading['as_of']:%A, %B %d, %Y — %I:%M %p}{tz_suffix} local time in {city}.")
+    as_of = reading.get("as_of")
+    if as_of is not None:
+        try:
+            tz_suffix = f" {as_of:%Z}".rstrip()
+            st.caption(f"📅 As of {as_of:%A, %B %d, %Y — %I:%M %p}{tz_suffix} local time in {city}.")
+        except Exception:
+            pass
 
-    st.subheader("📈 Trends")
-    st.caption(
-        "Shows a typical simulated daily shape (AM/PM traffic bumps for particulates, an "
-        "afternoon peak for ozone) with today's current reading marked."
-    )
-    st.plotly_chart(charts.aqi_trend_chart(reading["hourly"], reading["current_hour"]), use_container_width=True)
-    if reading["sub_indices"]:
-        st.plotly_chart(charts.pollutant_breakdown_chart(reading["sub_indices"]), use_container_width=True)
+    hourly = reading.get("hourly")
+    if hourly is not None and not hourly.empty:
+        st.subheader("📈 Trends")
+        st.caption(
+            "Shows a typical simulated daily shape (AM/PM traffic bumps for particulates, an "
+            "afternoon peak for ozone) with today's current reading marked."
+        )
+        try:
+            st.plotly_chart(
+                charts.aqi_trend_chart(hourly, reading.get("current_hour", 0)), use_container_width=True
+            )
+            if reading.get("sub_indices"):
+                st.plotly_chart(charts.pollutant_breakdown_chart(reading["sub_indices"]), use_container_width=True)
+        except Exception:
+            st.caption("Trend charts are temporarily unavailable.")

@@ -62,6 +62,20 @@ top:
     own official transit/AQI/pollen alerts, and a searchable list lets you
     browse and join other towns' communities without changing your saved
     city/ZIP.
+11. **🔒 Real account security & persistence** — signing up now hashes your
+    password (PBKDF2-HMAC-SHA256, a unique random salt per account, 100,000
+    iterations) and saves it to a small local database file, so an account
+    you create survives closing the browser tab, reopening the app days
+    later, or the app server restarting — log in with the same
+    username/password again and again and it just works. See "Accounts:
+    security & persistence" below for exactly how this works and its
+    honest limits.
+12. **💬 Send Feedback / Bug Report** — a small expander at the very bottom
+    of the sidebar, always available, logged in or as a guest. Pick a
+    category, type what you noticed, and it's saved to this session's
+    feedback log — plus an optional link to a Google Form for pilot
+    testers who want their note to actually reach the maintainer. See
+    "Feedback widget" below.
 
 Every city switch instantly updates the local time shown, the transit
 board, and the air-quality reading — there's nothing to refresh separately.
@@ -70,8 +84,8 @@ board, and the air-quality reading — there's nothing to refresh separately.
 
 `app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`,
 `homepage.py`, `user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`,
-`exports.py`, `community.py`, and `charts.py` are **always delivered
-together as one matched set** and import from each
+`exports.py`, `community.py`, `feedback.py`, and `charts.py` are **always
+delivered together as one matched set** and import from each
 other — most importantly, several of them do `from cities import ...` at
 their own top level. Uploading a newer `app.py` to GitHub next to an
 **older** `cities.py` (e.g. from an earlier version of this project that
@@ -170,16 +184,76 @@ computation the full dashboard uses, so the two views never disagree. A
 "🧭 Dashboard" toggle in the sidebar at all times) switches between the two
 views.
 
-**Please read before you rely on this for anything real:** accounts here
-are a demo login, not a production auth system. They live only in
-`st.session_state` — in server-side memory, for the current session only.
-That means signing up and logging back in works great *within* one browser
-session (which is what makes the "log in → instantly personalized" flow
-demoable end to end), but accounts do **not** survive an app restart and
-are **not** shared across different browsers, devices, or users. Passwords
-are stored in plain text in that same in-memory store — completely fine
-for trying out the feature, but never reuse a real password here. See
-"Extending it" below for the real-database upgrade path.
+## 🔒 Accounts: security & persistence
+
+This was rebuilt for the Week 1 pilot freeze so accounts behave like a real
+(if small) auth system, not a demo:
+
+- **Passwords are hashed, never stored in plain text.** Each account gets
+  its own random 16-byte salt (`secrets.token_bytes`), and the password is
+  run through `hashlib.pbkdf2_hmac("sha256", ..., 100_000 iterations)`
+  before it ever touches disk. Logging in re-hashes the entered password
+  with that same salt and compares the two hashes with `hmac.compare_digest`
+  (a constant-time comparison, so the check itself can't leak timing
+  information about how much of the password matched).
+- **Accounts persist across restarts.** Sign-up writes to a small local
+  SQLite database file (`accounts.db`, created automatically the first time
+  the app runs — plain Python `sqlite3`, no extra dependency to install).
+  Close the tab, restart the server, come back tomorrow — your account,
+  saved city/ZIP/profile defaults, and saved routes are all still there,
+  and you log in with the exact same username and password every time.
+  (Being *logged in* is still a per-browser-session thing, the same way a
+  normal website's session cookie works — but the account and its data
+  underneath that login are durable now.)
+- **`accounts.db` is never something you should commit to GitHub** — it
+  holds real (hashed) pilot-tester credentials. The included `.gitignore`
+  already excludes it.
+- **Automatic fallback if the filesystem can't be written to.** Some free
+  hosting tiers run on a read-only or ephemeral filesystem. If
+  `accounts.db` can't be created, the app detects this once at startup and
+  falls back to the old in-memory-only behavior automatically — the app
+  never crashes because of it, it just quietly loses persistence for that
+  deployment. Either way, the sidebar and Sign Up tab show an honest,
+  accurate one-line status (`accounts.storage_mode_label()`) telling you
+  which mode is active, so nothing here overpromises.
+- **Usernames are case-insensitive.** "Alice" and "alice" are the same
+  account for both login and duplicate-signup checks.
+- **Login failures don't reveal which part was wrong.** A wrong password
+  and a username that doesn't exist both show the identical message
+  ("That username/password combination isn't recognized.") — this is a
+  deliberate anti-enumeration measure so someone probing the login form
+  can't tell which usernames are real.
+- **Still worth knowing:** this is `hashlib`/`sqlite3` from Python's own
+  standard library, chosen specifically to avoid adding a new dependency
+  for a pilot. It's a real, solid step up from plain-text/in-memory
+  storage — genuinely fine for a small pilot — but a larger production
+  deployment would typically move to a dedicated password-hashing library
+  (`bcrypt` or `argon2-cffi`) and a hosted database (Postgres, etc.) rather
+  than a single local SQLite file. `accounts.py`'s docstring notes exactly
+  where to make that swap if/when you need it.
+
+## 💬 Feedback widget
+
+A "💬 Send Feedback / Report a Bug" expander sits at the very bottom of the
+sidebar on every view, for logged-in users and guests alike. Pick a
+category (bug, confusing, idea, compliment, other), type a note, and
+submit — it's appended to this session's feedback log
+(`feedback.get_feedback()`) with a timestamp and your identity (your
+username, or your guest ID if you're not logged in — the same identity
+`community.py` already uses, so a guest's feedback and their community
+posts are traceably the same person within a session). A divider below the
+form also shows a link to a Google Form, for pilot testers whose feedback
+should actually reach you between sessions.
+
+**Read this before pilot launch:** the placeholder URL in `feedback.py`
+(`GOOGLE_FORM_URL`) needs to be replaced with your own real Google Form
+link before real pilot testers use it — right now it's a visible
+placeholder, not a working form. Feedback submitted through the in-app
+widget itself is session-only (like the rest of this app's user-generated
+content) and isn't emailed or saved anywhere durable yet; if you want that
+feedback to persist and reach you automatically, the natural upgrade is to
+have `submit_feedback()` write into the same SQLite database `accounts.py`
+already sets up (one more small table), rather than only `st.session_state`.
 
 ## Does this use TODAY's real date/time — in the right city's timezone?
 
@@ -422,17 +496,59 @@ session by name/city and either **view** one (without changing your own
 saved city/ZIP) or **join** it — a "↩️ Back to my town" button always
 returns you to your own community's view.
 
-**Please read before you rely on this for anything real:** exactly like
-accounts, saved locations, and transit's own community reports elsewhere
-in this app, communities and their posts live only in `st.session_state`
-— server-side memory, for this session only. That's enough to demo
-"post an issue → it appears → someone else upvotes it" end to end within
-one browser tab, but there's no real database, nothing is shared across
-different browsers/devices/users, and a restart clears every community.
-See "Extending it" below for the natural persistence upgrade path (the
-same small-SQLite approach already suggested for accounts and saved
-locations would work here too — one `communities` table, one `posts`
-table with a foreign key, one `upvotes` table keyed by post + user).
+**Please read before you rely on this for anything real:** unlike user
+accounts (which now persist — see "Accounts: security & persistence"
+above), communities and their posts still live only in
+`st.session_state` — server-side memory, for this session only. That's
+enough to demo "post an issue → it appears → someone else upvotes it" end
+to end within one browser tab, but there's no real database, nothing is
+shared across different browsers/devices/users, and a restart clears
+every community. See "Extending it" below for the natural persistence
+upgrade path (the same SQLite approach already used for accounts would
+work here too — one `communities` table, one `posts` table with a foreign
+key, one `upvotes` table keyed by post + user).
+
+## 🧹 Week 1 code freeze: bug sweep, UI polish, rerun optimization
+
+A final pass across every file before the pilot build, covering three
+things:
+
+**Defensive error handling.** Every `st.session_state` read that used to
+index a dict directly (`d["key"]`) now reads with a safe default
+(`d.get("key", ...)`) throughout `app.py`, `air_quality.py`, `transit.py`,
+`community.py`, and `homepage.py`. Every external or dynamic call that can
+fail for reasons outside this app's control — the live OpenAQ request, a
+ZIP-to-neighborhood lookup, resolving the selected city's data — is
+wrapped in its own `try/except` with a friendly, on-brand fallback UI
+state, close to where the call happens rather than one big catch-all
+around an entire tab, so a single failing piece degrades gracefully
+instead of taking the whole page down with a raw red traceback. Each
+fallback dict was checked to include every key its consumer actually
+reads — a partial fallback is its own latent bug (see the dedicated test
+note above, which caught exactly this in a first draft of this pass).
+
+**UI alignment & clean layout.** Buttons, form-submit buttons, and
+download buttons share one consistent rounded shape and weight; text
+inputs, text areas, and dropdowns share the same corner radius; dividers,
+expanders, and column padding all follow one consistent spacing rhythm
+instead of Streamlit's mismatched defaults — across the Home page,
+Dashboard, and Community Hub alike. This is what "doesn't look
+AI-generated" comes down to in practice: one deliberate, consistent visual
+language everywhere, not a special case per page.
+
+**Rerun optimization.** Several buttons that used to do
+`if st.button(...): st.session_state[...] = value; st.rerun()` — nav
+toggles, log out, applying a saved route or saved location, resolving a
+report, upvoting a community post — now use Streamlit's `on_click`
+callback instead. A callback runs and finishes *before* the next script
+pass starts, so the state change is already in place by the time the page
+redraws — no stale intermediate frame, no flicker, no need to click twice
+for a change to "stick." Login and Sign Up were deliberately **left**
+using the previous queue-and-rerun pattern instead of `on_click`, because
+those forms need to show a conditional inline success/error message tied
+to that exact submission, which a callback can't cleanly render in place —
+see the code comment right above the login form in `homepage.py` for the
+full reasoning.
 
 ## What's real, and what's simulated (read this first)
 
@@ -489,12 +605,14 @@ What's **simulated**, and clearly labeled as such in the UI:
   simulated data, following a realistic seasonal curve per city/ZIP/day —
   see "Today's Outlook, Pollen Index, and one-click export" above.
 
-Community-flagged accessibility reports, saved locations, your sensitivity
-profile, and user accounts (including saved routes) are all real user
-input, held only in the browser session (they reset when the app
-restarts) — this was a deliberate scope choice to keep the demo
-dependency-free (see "Extending it" below for how to make any of them
-persistent).
+Community-flagged accessibility reports, saved locations, and your
+sensitivity profile toggles are all real user input, held only in the
+browser session (they reset when the app restarts) — this was a
+deliberate scope choice to keep the demo dependency-free (see "Extending
+it" below for how to make any of them persistent). **User accounts are the
+one exception:** since the Week 1 polish pass, accounts (including saved
+routes and saved defaults) persist in a local SQLite database and survive
+an app restart — see "Accounts: security & persistence" above.
 
 ## Project structure
 
@@ -502,7 +620,8 @@ persistent).
 local_daily_companion/
 ├── app.py                 # Streamlit entrypoint — sidebar, view switching, wires everything together
 ├── homepage.py            # Home view — logged-out pitch/login/signup, or logged-in "Welcome back" dashboard
-├── accounts.py            # Session-only user accounts: sign up / log in, saved defaults & routes
+├── accounts.py            # User accounts: hashed passwords, SQLite persistence, saved defaults & routes
+├── feedback.py            # Sidebar "Send Feedback / Bug Report" widget + session feedback log
 ├── cities.py              # Shared registry: 18 real U.S. cities, coordinates, ZIPs, IANA timezones,
 │                          #   ZIP validation/lookup (cities.is_valid_zip / lookup_neighborhood)
 ├── transit.py             # Tab 1 — real agencies/lines/stations, routing, simulated live data, reports
@@ -592,19 +711,19 @@ By default, Tab 2 uses realistic simulated air-quality data. To switch to
 
 ## Extending it
 
-- **Persist community reports, saved locations, profile toggles, or user
-  accounts across restarts:** all of these currently live in
-  `st.session_state` (`accessibility_reports` in `transit.py`;
-  `saved_locations` and each `profile_toggle_*` key in `user_profile.py`;
-  the whole `accounts_store` dict in `accounts.py`). Swapping any of them
-  for a small SQLite database via Python's built-in `sqlite3` module is a
-  natural next step if you want them to survive an app restart, or to be
-  visible across different users' sessions rather than just your own
-  browser tab. For accounts specifically, that upgrade should also add
-  real password hashing (e.g. `hashlib.pbkdf2_hmac` or `bcrypt`) in place
-  of `accounts.py`'s current plain-text, in-memory demo storage — see that
-  module's docstring for the exact spots to change (`sign_up`/`log_in`
-  compare `account["password"]` directly today).
+- **Persist community reports, saved locations, or profile toggles across
+  restarts:** these still live in `st.session_state`
+  (`accessibility_reports` in `transit.py`; `saved_locations` and each
+  `profile_toggle_*` key in `user_profile.py`). User accounts already made
+  this jump (see "Accounts: security & persistence" above) via a small
+  SQLite database through Python's built-in `sqlite3` module — the same
+  pattern (one table per concept, keyed by username or community id) is
+  the natural next step for these too, if you want them to survive an app
+  restart or be visible across different users' sessions rather than just
+  one browser tab.
+- **Persist feedback submissions:** `feedback.py`'s in-app widget currently
+  logs to `st.session_state` only — see "Feedback widget" above for the
+  suggested SQLite upgrade path.
 - **Add a real ZIP-to-neighborhood directory:** `cities.lookup_neighborhood()`
   only recognizes each city's small curated list today; a free ZIP
   centroid dataset (e.g. the US Census Bureau's ZCTA gazetteer) would let
@@ -706,3 +825,32 @@ auto-creates a community (creation is one explicit click), that a
 logged-in user is auto-joined to their OWN already-existing town community
 on a later visit with no extra click, and that browsing/joining OTHER
 towns' communities never disturbs your own saved city/ZIP.*
+
+*The Week 1 code-freeze/polish pass got its own dedicated tests on top of
+all of the above. `accounts.py`'s rewrite was verified end to end: hashed
+passwords are never plain text and are never returned by `get_account()`;
+two identical passwords for two different accounts produce two different
+hashes (per-account salting is real); correct-password and wrong-password
+logins behave correctly, and a wrong password and a nonexistent username
+produce the exact same generic failure message; usernames match and
+reject duplicates case-insensitively; accounts, saved preferences, and
+saved routes all survive `st.session_state.clear()` (a genuine persistence
+proof, not just an in-memory check); and the in-memory fallback mode was
+separately exercised (with `PERSISTENT_STORAGE_AVAILABLE` temporarily
+forced off) to confirm it never touches the real database file and still
+behaves identically from the outside. A separate defensive-sweep test
+confirmed `air_quality.render_air_quality_tab()` survives a minimal,
+`None`, or empty reading dict without a `KeyError`; that the full `app.py`
+survives `cities.lookup_neighborhood()` and `cities.get_city()` both
+raising an exception (simulating a ZIP lookup or city-data failure) with a
+friendly fallback instead of a raw traceback; and that `feedback.py`'s
+submit/list logic works and correctly rejects whitespace-only submissions.
+One real bug was caught by this last test before delivery: a
+newly-added "defensive" fallback in `app.py` itself — falling back to the
+first city's data if the selected city's lookup failed — wasn't wrapped in
+its own `try/except`, so a broken `get_city()` could still crash through
+the fallback path. Fixed by wrapping that fallback call too and adding one
+further hardcoded last-resort city dict beneath it, on the principle that
+a fallback which can itself throw isn't actually a fallback. All 8 test
+files (covering every pass described in this README) were re-run clean
+together immediately before this delivery.*

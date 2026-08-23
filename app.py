@@ -79,6 +79,7 @@ try:
     import briefing
     import community
     import exports
+    import feedback
     import homepage
     import outlook
     import pollen
@@ -95,9 +96,9 @@ except (ImportError, AttributeError) as e:
         f"one of them failed to import (`{e}`).\n\n"
         "`app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`, `homepage.py`, "
         "`user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`, `exports.py`, `community.py`, "
-        "and `charts.py` are delivered together and depend on each other, so please make sure "
-        "**all** of them are the matching set from the same delivery, sitting in the same folder, "
-        "then restart the app. See the README's \"Keep all files in sync\" note for details."
+        "`feedback.py`, and `charts.py` are delivered together and depend on each other, so please "
+        "make sure **all** of them are the matching set from the same delivery, sitting in the same "
+        "folder, then restart the app. See the README's \"Keep all files in sync\" note for details."
     )
     st.stop()
     raise
@@ -207,8 +208,25 @@ st.markdown(
             repeating-linear-gradient(0deg, rgba(74,58,167,0.03) 0px, rgba(74,58,167,0.03) 1.5px, transparent 1.5px, transparent 80px);
         background-attachment: fixed;
     }
-    .block-container { padding-top: 1.6rem; max-width: 1180px; }
+    .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1180px; }
     h1, h2, h3 { letter-spacing: -0.01em; }
+
+    /* -- Consistent button/input/divider rhythm across every page -- one
+       shared shape language instead of each widget using Streamlit's raw
+       defaults, so the whole app reads as one designed product. -- */
+    .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+        border-radius: 10px;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+    }
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stTextArea"] textarea,
+    div[data-baseweb="select"] > div {
+        border-radius: 10px !important;
+    }
+    hr { margin: 0.7rem 0 !important; opacity: 0.14; }
+    div[data-testid="stExpander"] { border-radius: 14px; }
+    div[data-testid="column"] { padding: 0 8px; }
 
     /* -- Branding banner (Home page, and other lightweight headers) -- */
     .hero-banner {
@@ -374,24 +392,50 @@ with st.sidebar:
     st.markdown("## 🧭 Local Daily Companion")
     st.caption("Your city, your commute, your air.")
 
-    nav_l, nav_r = st.columns(2)
+    def _go_to(view_name: str):
+        # A plain on_click callback -- Streamlit runs this BEFORE the script
+        # reruns, so it's always safe to write straight to st.session_state
+        # here (even to a widget-bound key) with no extra rerun/queueing
+        # needed: the callback finishes, then the one automatic rerun that
+        # follows any widget interaction picks up the new value. That's a
+        # single state transition per click, with nothing rendered in
+        # between using the stale value.
+        st.session_state.view = view_name
+
+    nav_l, nav_r = st.columns(2, gap="small")
     with nav_l:
-        if st.button("🏠 Home", use_container_width=True,
-                      type="primary" if st.session_state.view == "home" else "secondary"):
-            st.session_state.view = "home"
-            st.rerun()
+        st.button("🏠 Home", use_container_width=True, on_click=_go_to, args=("home",),
+                   type="primary" if st.session_state.view == "home" else "secondary")
     with nav_r:
-        if st.button("🧭 Dashboard", use_container_width=True,
-                      type="primary" if st.session_state.view == "app" else "secondary"):
-            st.session_state.view = "app"
-            st.rerun()
+        st.button("🧭 Dashboard", use_container_width=True, on_click=_go_to, args=("app",),
+                   type="primary" if st.session_state.view == "app" else "secondary")
 
     if accounts.is_logged_in():
         st.caption(f"👤 Logged in as **{accounts.current_user()}**")
     st.divider()
 
     city = st.selectbox("🏙️ Choose your city", options=CITY_NAMES, key=CITY_KEY)
-    city_info = get_city(city)
+    try:
+        city_info = get_city(city) or {}
+    except Exception:
+        city_info = {}
+    if not city_info.get("zips"):
+        # get_city() is a pure local lookup and should never actually fail, but if it
+        # somehow returns something incomplete -- or even raises -- fall back to the first
+        # known city rather than letting a missing "zips"/"lat"/"lon" key crash the sidebar.
+        # This fallback call is wrapped too: "the fallback itself might fail" is exactly the
+        # kind of edge case a defensive sweep is supposed to close, not just move one level
+        # deeper. A last-resort hardcoded shape keeps every downstream .get() call satisfied
+        # even if cities.py itself is completely unavailable.
+        try:
+            city_info = get_city(CITY_NAMES[0]) or {}
+        except Exception:
+            city_info = {}
+        if not city_info.get("zips"):
+            city_info = {
+                "state": "", "lat": 0.0, "lon": 0.0, "timezone": "UTC",
+                "zips": [{"zip": "00000", "neighborhood": "Unknown area"}],
+            }
 
     # ------------------------------------------------------------------
     # ZIP code entry. ZIP_KEY holds a plain ZIP-code STRING (never a list
@@ -444,7 +488,12 @@ with st.sidebar:
         st.caption(f"⚠️ '{raw_zip}' isn't a valid 5-digit ZIP — using {featured_zip_values[0]} for now.")
         selected_zip_code = featured_zip_values[0]
 
-    zip_lookup = lookup_neighborhood(city, selected_zip_code)
+    try:
+        zip_lookup = lookup_neighborhood(city, selected_zip_code) or {}
+    except Exception:
+        zip_lookup = {}
+    zip_lookup.setdefault("neighborhood", f"ZIP {selected_zip_code} area")
+    zip_lookup.setdefault("known", False)
     selected_zip = {"zip": selected_zip_code, "neighborhood": zip_lookup["neighborhood"]}
     if not zip_lookup["known"]:
         st.caption(
@@ -455,7 +504,11 @@ with st.sidebar:
         )
 
     # -- Real, city-local time (not server/UTC time) -----------------------
-    city_now = now_in_city(city)
+    try:
+        city_now = now_in_city(city)
+    except Exception:
+        from datetime import datetime as _dt
+        city_now = _dt.now()
     try:
         browser_tz = st.context.timezone
     except Exception:
@@ -476,7 +529,7 @@ with st.sidebar:
     st.divider()
     user_profile.render_saved_locations_sidebar(
         current_city=city, current_zip=selected_zip["zip"], current_neighborhood=selected_zip["neighborhood"],
-        city_key=CITY_KEY, zip_key=ZIP_KEY,
+        city_key=CITY_KEY, zip_key=ZIP_KEY, zip_city_context_key=ZIP_CITY_CONTEXT_KEY,
     )
 
     st.divider()
@@ -485,16 +538,21 @@ with st.sidebar:
     st.divider()
     user_profile.render_notification_preferences()
 
+    def _log_out_and_go_home():
+        accounts.log_out()
+        st.session_state.view = "home"
+
     if accounts.is_logged_in():
         st.divider()
         st.markdown("#### 👤 Your account")
+        st.caption(accounts.storage_mode_label())
         if st.button("💾 Save city/ZIP/profile as my defaults", use_container_width=True):
-            accounts.save_preferences(accounts.current_user(), city, selected_zip["zip"], user_profile.get_profile())
-            st.success("Saved — you'll see this instantly on your Home page from now on.")
-        if st.button("Log out", use_container_width=True, key="sidebar_logout"):
-            accounts.log_out()
-            st.session_state.view = "home"
-            st.rerun()
+            saved_ok = accounts.save_preferences(accounts.current_user(), city, selected_zip["zip"], user_profile.get_profile())
+            if saved_ok:
+                st.success("Saved — you'll see this instantly on your Home page from now on.")
+            else:
+                st.error("Couldn't save your defaults right now — please try again in a moment.")
+        st.button("Log out", use_container_width=True, key="sidebar_logout", on_click=_log_out_and_go_home)
 
     st.divider()
     st.caption(
@@ -504,6 +562,10 @@ with st.sidebar:
         "for details."
     )
     st.caption("Built with Streamlit, Plotly, and the OpenAQ API.")
+
+    st.divider()
+    feedback_identity = accounts.current_user() if accounts.is_logged_in() else community.get_guest_id()
+    feedback.render_feedback_widget(feedback_identity)
 
 # --------------------------------------------------------------------------
 # Compute "right now" once per run -- shared by the briefing, the personal
@@ -523,11 +585,23 @@ except Exception:
 
 try:
     aqi_reading = air_quality.get_current_reading(
-        city=city, zip_code=selected_zip["zip"], lat=city_info["lat"], lon=city_info["lon"], now=city_now,
+        city=city, zip_code=selected_zip["zip"], lat=city_info.get("lat"), lon=city_info.get("lon"), now=city_now,
     )
 except Exception:
-    aqi_reading = {"aqi": None, "label": "No data", "color": "#898781", "emoji": "❔",
-                    "risk": air_quality.asthma_risk(None), "source_badge": "", "as_of": city_now}
+    # A COMPLETE fallback shape, matching every key air_quality.render_air_quality_tab()
+    # reads -- a partial fallback dict here would just trade one crash (the live/simulated
+    # reading failing) for another (a KeyError inside the tab trying to read a pm25/hourly/
+    # etc. key this dict never had), which defeats the whole point of falling back gracefully.
+    import pandas as _pd
+    aqi_reading = {
+        "aqi": None, "label": "No data", "color": "#898781", "emoji": "❔",
+        "pm25": None, "pm10": None, "o3_ppb": None, "sub_indices": {}, "dominant": None,
+        "risk": air_quality.asthma_risk(None), "source": "unavailable",
+        "source_badge": "⚠️ Air quality data is temporarily unavailable for this city/ZIP.",
+        "hourly": _pd.DataFrame({"hour": [], "pm25": [], "pm10": [], "o3_ppb": [], "aqi": [], "dominant": []}),
+        "current_hour": city_now.hour if hasattr(city_now, "hour") else 0,
+        "as_of": city_now,
+    }
 
 try:
     pollen_reading = pollen.simulate_pollen(city, selected_zip["zip"], now=city_now)

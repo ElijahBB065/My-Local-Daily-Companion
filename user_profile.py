@@ -198,7 +198,7 @@ def consume_pending_location(city_key: str, zip_key: str, zip_city_context_key: 
 
 
 def render_saved_locations_sidebar(current_city: str, current_zip: str, current_neighborhood: str,
-                                    city_key: str, zip_key: str):
+                                    city_key: str, zip_key: str, zip_city_context_key: str = None):
     init_locations_state()
     st.markdown("#### 📌 Saved Locations")
 
@@ -207,19 +207,23 @@ def render_saved_locations_sidebar(current_city: str, current_zip: str, current_
 
     for loc in list(st.session_state.saved_locations):
         emoji = PRESET_EMOJI.get(loc["label"], "📍")
-        go_col, del_col = st.columns([5, 1])
+        go_col, del_col = st.columns([5, 1], gap="small")
         with go_col:
             city_short = loc["city"].split(",")[0]
-            if st.button(
+            # on_click instead of "if button: queue + st.rerun()" -- Streamlit runs on_click
+            # callbacks BEFORE the next script execution starts, so it's always safe to write
+            # straight to city_key/zip_key here even though this button renders AFTER those
+            # widgets earlier in the sidebar. That's one clean state transition per click
+            # instead of two passes (one aborted mid-render by st.rerun(), one that completes),
+            # which is what removes the brief flash of stale sidebar content on click.
+            st.button(
                 f"{emoji} {loc['label']} — {loc['neighborhood']}, {city_short}",
                 key=f"loc_go_{loc['label']}", use_container_width=True,
-            ):
-                queue_location_apply(loc)
-                st.rerun()
+                on_click=apply_location, args=(loc, city_key, zip_key, zip_city_context_key),
+            )
         with del_col:
-            if st.button("✕", key=f"loc_del_{loc['label']}", help=f"Remove '{loc['label']}'"):
-                remove_location(loc["label"])
-                st.rerun()
+            st.button("✕", key=f"loc_del_{loc['label']}", help=f"Remove '{loc['label']}'",
+                       on_click=remove_location, args=(loc["label"],))
 
     with st.expander("➕ Save current location"):
         st.caption(f"Will save: {current_neighborhood}, {current_city} ({current_zip})")

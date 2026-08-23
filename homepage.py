@@ -85,6 +85,14 @@ def render_logged_out():
                     # the actual write to the very top of app.py's NEXT
                     # run, before any widget exists yet -- see
                     # accounts.queue_apply_on_next_run().
+                    #
+                    # (Simpler on_click callbacks are used elsewhere in this
+                    # app for the same ordering hazard -- see user_profile's
+                    # saved-location buttons -- but a login form specifically
+                    # needs to show a conditional success/error message tied
+                    # to this exact submit, which an on_click callback can't
+                    # cleanly render inline. This queue+rerun is the one
+                    # extra step that buys us that inline message.)
                     accounts.queue_apply_on_next_run(u.strip())
                     st.session_state["view"] = "home"
                     st.success(msg)
@@ -107,17 +115,15 @@ def render_logged_out():
                     st.rerun()
                 else:
                     st.error(msg)
-        st.caption(
-            "Accounts here live only in this browser session's memory (no real database, no "
-            "password hashing) — perfect for trying out the personalization features, not for a "
-            "real password. See the README for how to wire up real persistent accounts."
-        )
+        st.caption(accounts.storage_mode_label())
 
     with tab_guest:
         st.write("No account needed — just pick a city and ZIP in the sidebar and go.")
-        if st.button("👉 Take me to the dashboard", use_container_width=True, type="primary"):
+
+        def _go_to_dashboard():
             st.session_state["view"] = "app"
-            st.rerun()
+
+        st.button("👉 Take me to the dashboard", use_container_width=True, type="primary", on_click=_go_to_dashboard)
 
 
 def render_logged_in(username: str, city: str = None, neighborhood: str = None, zip_code: str = None,
@@ -212,8 +218,8 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
             "🌼 Pollen", f"{pollen_reading.get('emoji', '❔')} {pollen_val if pollen_val is not None else '—'}",
             pollen_reading.get("category", "No data"), tiers.get("pollen"),
         )
+    saved_routes = account.get("saved_routes", []) if account else []
     with c4:
-        saved_routes = account["saved_routes"] if account else []
         st.markdown(
             f"""
             <div class="metric-card" style="min-height:104px; padding:14px 16px; --accent:#4a3aa7;">
@@ -225,20 +231,24 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
             unsafe_allow_html=True,
         )
 
-    if account and account["saved_routes"]:
+    if saved_routes:
         st.markdown("#### ⭐ Your saved routes")
-        for r in account["saved_routes"]:
-            st.caption(f"**{r['label']}** — {r['city']}")
+        for r in saved_routes:
+            st.caption(f"**{r.get('label', 'Saved route')}** — {r.get('city', '')}")
 
     st.write("")
-    if st.button("🧭 Open my full dashboard →", use_container_width=True, type="primary"):
+
+    def _open_dashboard():
         st.session_state["view"] = "app"
-        st.rerun()
+
+    def _log_out():
+        accounts.log_out()
+
+    st.button("🧭 Open my full dashboard →", use_container_width=True, type="primary", on_click=_open_dashboard)
 
     st.divider()
-    if st.button("Log out", key="home_logout"):
-        accounts.log_out()
-        st.rerun()
+    st.caption(accounts.storage_mode_label())
+    st.button("Log out", key="home_logout", on_click=_log_out)
 
 
 def render_homepage(city=None, neighborhood=None, zip_code=None, briefing_text=None,
