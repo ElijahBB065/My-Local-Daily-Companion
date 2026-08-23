@@ -52,6 +52,16 @@ top:
    daily, with a 15-minute-before alarm, today's actual briefing in the
    description), and a paste-ready plain-text daily summary via a
    one-click copy icon.
+10. **🏘️ Local Community Hub** (Tab 3) — a town/neighborhood-specific
+    message board. You're automatically routed to your own saved
+    town/neighborhood's community; if it doesn't exist yet, one click
+    creates it. Residents post across four categories (Transit/Road
+    Delays, Air Quality/Pollen Spotting, Local Infrastructure Issues,
+    General Town Chat) and upvote ("Me Too") the posts that matter most. A
+    side panel shows the top 3 crowd-reported issues alongside this run's
+    own official transit/AQI/pollen alerts, and a searchable list lets you
+    browse and join other towns' communities without changing your saved
+    city/ZIP.
 
 Every city switch instantly updates the local time shown, the transit
 board, and the air-quality reading — there's nothing to refresh separately.
@@ -60,8 +70,8 @@ board, and the air-quality reading — there's nothing to refresh separately.
 
 `app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`,
 `homepage.py`, `user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`,
-`exports.py`, and `charts.py` are **always delivered together as one
-matched set** and import from each
+`exports.py`, `community.py`, and `charts.py` are **always delivered
+together as one matched set** and import from each
 other — most importantly, several of them do `from cities import ...` at
 their own top level. Uploading a newer `app.py` to GitHub next to an
 **older** `cities.py` (e.g. from an earlier version of this project that
@@ -368,6 +378,62 @@ numbers as the banner above them — nothing here is a placeholder:
   and the full Daily Briefing sentence, ready to paste into a text message
   or note.
 
+## 🏘️ Local Community Hub (Tab 3)
+
+A third tab alongside Transit and Air Quality: a **town/neighborhood-specific
+message board**, keyed by the same (city, neighborhood) pair the sidebar
+already resolves from your selected city/ZIP (`cities.lookup_neighborhood`)
+— so a community is always named after somewhere real and specific (e.g.
+"Chelsea Community" in New York, NY), not a generic city-wide bucket.
+
+**Automatic routing + creation (`community.py`):** opening the tab
+routes you straight to your own saved town's community if one already
+exists — no picker, no extra click. If it doesn't exist yet, you'll see a
+one-click **"➕ Create `<neighborhood>` Community"** button instead of a
+dead end; creating it seeds a friendly welcome post so it's never a blank
+page, and makes you its first member automatically.
+
+**Message board:** a post form lets any resident (logged in, or a stable
+per-session guest identity like `Guest-a1b2c` if not — accounts are
+optional everywhere in this app, and the Community Hub is no exception)
+post to one of four categories:
+
+- 🚌 Transit / Road Delays
+- 🌬️ Air Quality / Pollen Spotting
+- 🛠️ Local Infrastructure Issues (a broken elevator, a flooded street, etc.)
+- 💬 General Town Chat
+
+A category filter narrows the feed, and every post carries a **"👍 Me Too"**
+button — clicking it upvotes (and clicking again un-votes) using your own
+stable identity, so double-voting isn't possible and your own vote is
+remembered across reruns within the session.
+
+**Community & Alert Digest side panel:** next to the message board, a
+digest shows the **top 3 crowd-reported issues** for that town (ranked by
+upvote count, General Chat excluded since it isn't really an "issue") right
+alongside **this run's own official alerts** — the same already-computed
+transit delay/elevator-outage, AQI, and pollen readings the outlook banner
+uses elsewhere on the page, never re-fetched or re-simulated separately, so
+the digest can't disagree with the rest of the dashboard.
+
+**Browse & join other towns:** a "🔍 Browse or join other town communities"
+section lets you search across every community anyone has created this
+session by name/city and either **view** one (without changing your own
+saved city/ZIP) or **join** it — a "↩️ Back to my town" button always
+returns you to your own community's view.
+
+**Please read before you rely on this for anything real:** exactly like
+accounts, saved locations, and transit's own community reports elsewhere
+in this app, communities and their posts live only in `st.session_state`
+— server-side memory, for this session only. That's enough to demo
+"post an issue → it appears → someone else upvotes it" end to end within
+one browser tab, but there's no real database, nothing is shared across
+different browsers/devices/users, and a restart clears every community.
+See "Extending it" below for the natural persistence upgrade path (the
+same small-SQLite approach already suggested for accounts and saved
+locations would work here too — one `communities` table, one `posts`
+table with a foreign key, one `upvotes` table keyed by post + user).
+
 ## What's real, and what's simulated (read this first)
 
 Every **city, transit agency, rail line, and station name** in this app is
@@ -446,6 +512,7 @@ local_daily_companion/
 ├── outlook.py             # Rolls transit+AQI+pollen into one good/caution/hazard verdict (pure logic)
 ├── pollen.py              # Simulated daily Pollen Index, seasonal curve, per city/ZIP/day
 ├── exports.py             # .ics calendar event + plain-text daily summary builders (pure logic)
+├── community.py           # Tab 3 — town/neighborhood message board, upvotes, community digest panel
 ├── charts.py              # Plotly chart builders
 ├── requirements.txt
 └── .streamlit/config.toml # Custom theme
@@ -624,3 +691,18 @@ was checked for a valid `VCALENDAR`/`VEVENT`/`VALARM` structure, the daily
 in the description; and the full `app.py` was re-run across all 18 cities,
 both views, and both notification-preference states with the new banner,
 tiles, and export section wired in, with no crash in any combination.*
+
+*The Community Hub got the same treatment: `community.py`'s core logic —
+deterministic community ids per (city, neighborhood), idempotent creation
+(no duplicate welcome posts or accidental extra members from a second
+"create" call), category validation and empty-text rejection on posts,
+per-identity upvote toggling (including against nonexistent community/post
+ids, which fail gracefully rather than raising), the "top 3 issues exclude
+chat" rule, and `official_alerts()`'s output for both an all-clear and a
+multi-alert scenario — was unit-tested directly. The full `app.py` was then
+re-run with the Community Hub as a third tab across all 18 cities plus a
+logged-in flow, confirming visiting the dashboard never silently
+auto-creates a community (creation is one explicit click), that a
+logged-in user is auto-joined to their OWN already-existing town community
+on a later visit with no extra click, and that browsing/joining OTHER
+towns' communities never disturbs your own saved city/ZIP.*

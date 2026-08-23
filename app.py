@@ -77,6 +77,7 @@ try:
     import accounts
     import air_quality
     import briefing
+    import community
     import exports
     import homepage
     import outlook
@@ -93,10 +94,10 @@ except (ImportError, AttributeError) as e:
         "⚠️ **Setup problem:** this project's files don't match up -- "
         f"one of them failed to import (`{e}`).\n\n"
         "`app.py`, `cities.py`, `transit.py`, `air_quality.py`, `accounts.py`, `homepage.py`, "
-        "`user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`, `exports.py`, and `charts.py` "
-        "are delivered together and depend on each other, so please make sure **all** of them are "
-        "the matching set from the same delivery, sitting in the same folder, then restart the "
-        "app. See the README's \"Keep all files in sync\" note for details."
+        "`user_profile.py`, `briefing.py`, `outlook.py`, `pollen.py`, `exports.py`, `community.py`, "
+        "and `charts.py` are delivered together and depend on each other, so please make sure "
+        "**all** of them are the matching set from the same delivery, sitting in the same folder, "
+        "then restart the app. See the README's \"Keep all files in sync\" note for details."
     )
     st.stop()
     raise
@@ -713,7 +714,9 @@ with st.expander("📤 Save or share today's outlook"):
         except Exception as e:  # noqa: BLE001
             st.caption(f"Summary export unavailable right now ({e}).")
 
-tab_transit, tab_air = st.tabs(["🚌 Transit Accessibility & Delays", "🌬️ Air Quality & Asthma Alerts"])
+tab_transit, tab_air, tab_community = st.tabs([
+    "🚌 Transit Accessibility & Delays", "🌬️ Air Quality & Asthma Alerts", "🏘️ Community Hub",
+])
 
 with tab_transit:
     try:
@@ -738,4 +741,20 @@ with tab_air:
         )
     except Exception as e:  # noqa: BLE001
         st.error("Something went wrong loading air quality data for this city. Try refreshing or picking a different city.")
+        st.caption(f"Technical detail: {e}")
+
+with tab_community:
+    try:
+        community.render_community_tab(
+            city=city,
+            neighborhood=selected_zip["neighborhood"],
+            zip_code=selected_zip["zip"],
+            transit_status=transit_status,
+            aqi_reading=aqi_reading,
+            pollen_reading=pollen_reading,
+            logged_in_user=accounts.current_user() if accounts.is_logged_in() else None,
+            now=city_now,
+        )
+    except Exception as e:  # noqa: BLE001
+        st.error("Something went wrong loading the Community Hub for this town. Try refreshing or picking a different city.")
         st.caption(f"Technical detail: {e}")
