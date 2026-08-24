@@ -65,12 +65,14 @@ import streamlit as st
 # CITY_NAMES and get_city are load-bearing -- there's no safe way to
 # reconstruct 18 cities' worth of real coordinates/timezones/ZIPs if
 # they're missing, so that failure gets a clear, friendly stop instead of
-# a raw traceback. now_in_city / lookup_neighborhood / is_valid_zip are
-# newer additions (timezone support + dynamic ZIP lookup) added after
-# CITY_NAMES/get_city already existed; if cities.py has the former but not
-# the latter, app.py defines its own equivalent fallback further below so
-# the app keeps working rather than crashing outright. Updating cities.py
-# (and every other file) to the latest matching version is still the right
+# a raw traceback. now_in_city / lookup_neighborhood / is_valid_zip
+# (cities.py) and render_status_tile / render_environmental_card
+# (homepage.py) are all newer additions added after their modules'
+# original functions already existed; if a deployment ever ends up with a
+# newer file next to an older one that's missing one of these, app.py
+# defines its own equivalent fallback further below so the app keeps
+# working rather than crashing outright with an AttributeError. Updating
+# every file to the latest matching version together is still the right
 # long-term fix -- see the README's "Keep all files in sync" note.
 # --------------------------------------------------------------------------
 try:
@@ -147,6 +149,65 @@ else:
                     return {"neighborhood": z["neighborhood"], "known": True}
             return {"neighborhood": f"ZIP {zip_code} area", "known": False}
         return {"neighborhood": "Unknown area", "known": False}
+
+# render_status_tile / render_environmental_card were added to homepage.py
+# during the minimalist redesign pass. If a DEPLOYMENT ever ends up with a
+# newer app.py sitting next to an OLDER homepage.py (e.g. only app.py got
+# re-uploaded to GitHub, or a hosting platform's file cache lagged behind
+# a partial update), calling homepage.render_status_tile(...) directly
+# would raise AttributeError and crash the whole dashboard, exactly like
+# the CITY_NAMES/get_city mismatch this same pattern already guards
+# against above. Same fix: define a local equivalent here and use IT
+# instead of reaching into `homepage` directly, so a mismatched file pair
+# degrades to "still works, just from the fallback copy" instead of a
+# blank crashed page. Keeping homepage.py up to date is still the right
+# long-term fix -- see the README's "Keep all files in sync" note.
+if hasattr(homepage, "render_status_tile"):
+    render_status_tile = homepage.render_status_tile
+else:
+    def render_status_tile(label: str, value: str, note: str, tier: str = "caution", compact: bool = False):
+        """Fallback for an older homepage.py -- same behavior as the
+        current homepage.render_status_tile()."""
+        tier = tier if tier in ("good", "caution", "hazard") else "caution"
+        badge_text = {"good": "🟢 On track", "caution": "🟡 Worth a glance", "hazard": "🔴 Needs attention"}[tier]
+        style = "min-height:104px; padding:14px 16px;" if compact else ""
+        value_style = "font-size:1.3rem;" if compact else ""
+        st.markdown(
+            f"""
+            <div class="status-tile" style="{style}">
+                <div class="tile-label">{label}</div>
+                <div class="tile-value" style="{value_style}">{value}</div>
+                <span class="tile-badge tile-badge-{tier}">{badge_text}</span>
+                <div class="tile-note">{note}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+if hasattr(homepage, "render_environmental_card"):
+    render_environmental_card = homepage.render_environmental_card
+else:
+    def render_environmental_card(pollen_reading: dict, aqi_reading: dict = None):
+        """Fallback for an older homepage.py -- same behavior as the
+        current homepage.render_environmental_card()."""
+        pollen_reading = pollen_reading if isinstance(pollen_reading, dict) else {}
+        category = pollen_reading.get("category") or "No data"
+        tier = {"Low": "good", "Moderate": "caution", "High": "caution",
+                "Very High": "hazard", "Extreme": "hazard"}.get(category, "caution")
+        emoji = {"good": "🟢", "caution": "🟡", "hazard": "🔴"}[tier]
+        dominant = pollen_reading.get("dominant_allergen") or "Not available right now"
+        action = pollen_reading.get("action") or "Check back later for an update."
+        st.markdown("##### 🌼 Environmental Health & Pollen Outlook")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown('<div class="stat-label">Asthma Hazard Level</div>', unsafe_allow_html=True)
+            st.markdown(f'<span class="tile-badge tile-badge-{tier}">{emoji} {category}</span>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="stat-label">Dominant Airborne Allergen</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stat-value">{dominant}</div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown('<div class="stat-label">Recommended Action</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stat-value">{action}</div>', unsafe_allow_html=True)
 
 st.set_page_config(
     page_title="Local Daily Companion",
@@ -743,12 +804,12 @@ with tile_l:
     outages = transit_status.get("elevator_outages", 0) or 0
     note = f"{delay_min} min avg delay" if delay_min is not None else "Delay data unavailable"
     note += f" · {outages} elevator outage{'s' if outages != 1 else ''}"
-    homepage.render_status_tile("🚌 Transit", level_label, note, tiers["transit"])
+    render_status_tile("🚌 Transit", level_label, note, tiers["transit"])
 with tile_r:
     aqi_val = aqi_reading.get("aqi")
     value = f"{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'} · {aqi_reading.get('label', 'No data')}"
     note = aqi_reading["risk"]["advice"] if aqi_reading.get("risk") else "No advice available."
-    homepage.render_status_tile("🌬️ Air Quality", value, note, tiers["aqi"])
+    render_status_tile("🌬️ Air Quality", value, note, tiers["aqi"])
 
 # --------------------------------------------------------------------------
 # Environmental Health & Pollen Outlook -- one clean card, three columns:
@@ -757,10 +818,11 @@ with tile_r:
 # Open-Meteo reading (or its PM2.5/AQI-based estimate, or its fully
 # simulated fallback -- see pollen.py) so this card can never disagree
 # with the tiles above or the outlook banner's own verdict. Shared with
-# the Home page's logged-in/out views via homepage.render_environmental_card
-# so there's exactly one implementation of this card, not two.
+# the Home page's logged-in/out views via the same render_environmental_card
+# name resolved above, so there's exactly one implementation of this card
+# in the normal case (a matched file pair), not two.
 # --------------------------------------------------------------------------
-homepage.render_environmental_card(pollen_reading, aqi_reading)
+render_environmental_card(pollen_reading, aqi_reading)
 
 # --------------------------------------------------------------------------
 # Dashboard's own Daily Briefing card -- kept as a smaller, secondary detail

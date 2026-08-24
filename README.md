@@ -105,11 +105,46 @@ mixing individual files from different messages/versions.
 As a safety net, `app.py` now also handles this gracefully on its own: if
 `cities.py` (or any other file above) is missing or out of sync, you'll
 see a clear on-screen message telling you exactly what to fix instead of
-a raw Python traceback, and if `cities.py` merely lacks one of the three
-newer helper functions, `app.py` defines a working equivalent internally
-so the app keeps running rather than crashing. Updating `cities.py` (and
-everything else) to the latest version, together, is still the right
-long-term fix.
+a raw Python traceback, and if `cities.py` merely lacks one of its three
+newer helper functions (`now_in_city`, `lookup_neighborhood`,
+`is_valid_zip`) or `homepage.py` lacks one of its two newer ones
+(`render_status_tile`, `render_environmental_card`), `app.py` defines a
+working equivalent internally so the app keeps running rather than
+crashing outright with an `AttributeError`. Updating every file to the
+latest version together is still the right long-term fix.
+
+## 🐛 Fixed: `AttributeError: module 'homepage' has no attribute 'render_status_tile'`
+
+A real deployment hit this on the Dashboard's very first load: `app.py`
+called `homepage.render_status_tile(...)` directly, and the `homepage.py`
+sitting next to it on that deployment didn't define that function yet —
+almost certainly because only `app.py` had been re-uploaded to GitHub
+while `homepage.py` was left at an earlier version (exactly the "Keep all
+files in sync" hazard described above, just for `homepage.py` instead of
+`cities.py`).
+
+**The fix applies the same pattern already used for `cities.py`'s newer
+helper functions:** right after this project's files are imported, `app.py`
+now checks `hasattr(homepage, "render_status_tile")` (and the same for
+`render_environmental_card`) and, if either is missing, defines its own
+matching fallback right there instead of reaching into `homepage` directly
+at the call site. Every place that used to call `homepage.render_status_tile(...)`
+or `homepage.render_environmental_card(...)` now calls the plain,
+locally-resolved `render_status_tile(...)` / `render_environmental_card(...)`
+instead — which points at `homepage`'s real implementation when the two
+files match (the normal case), and at the local fallback copy on a
+mismatched deployment, so a partial file update degrades to "still works"
+instead of crashing the whole Dashboard.
+
+This is covered by a dedicated test that reproduces the exact reported
+failure: it removes `render_status_tile`/`render_environmental_card` from
+the `homepage` module object at runtime (simulating an older `homepage.py`
+missing them) and confirms `app.py` still renders the Dashboard cleanly
+across all 18 cities using its own fallback copies, with a sanity check
+immediately after confirming the normal, matched-file case still works
+too. **Still, please replace every file together when you update this
+project** — the fallback keeps the app from crashing, but `homepage.py`'s
+real implementation is the one that gets any future improvements.
 
 ## 🐛 Fixed: a crash on the first login click (StreamlitAPIException)
 
