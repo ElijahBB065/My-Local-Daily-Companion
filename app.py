@@ -190,194 +190,145 @@ accounts.consume_pending_apply(CITY_KEY, ZIP_KEY, PROFILE_KEY_PREFIX, ZIP_CITY_C
 user_profile.consume_pending_location(CITY_KEY, ZIP_KEY, ZIP_CITY_CONTEXT_KEY)
 
 # --------------------------------------------------------------------------
-# Styling -- a clean, modern "web app" system: a soft off-white/slate canvas
-# with crisp, elevated white cards floating on top of it, one consistent
-# pill-shaped button/tab language, and a bold deep-slate-to-emerald gradient
-# reserved for the handful of "look here first" moments (the hero banner,
-# the outlook banner, primary buttons). Shared tokens (--card-border,
-# --card-shadow, --card-radius, --accent-grad) keep every card/button across
-# every page speaking the same visual language instead of a per-page
-# one-off style, which is what keeps a hand-built app from reading as a
-# pile of mismatched Streamlit defaults.
+# Styling -- a drastically simplified, minimalist "web app" system: a flat
+# soft off-white canvas, plain white rounded cards with a hairline border
+# and one soft shadow (no stacked borders/accent bars competing for
+# attention), generous padding, and color communicated through small
+# badge pills rather than loud full-bleed color fills. A single vivid
+# gradient is reserved for the ONE "look here first" moment per page (the
+# outlook banner on the dashboard, the hero card on the Home page) --
+# everything else stays calm so that one moment actually stands out.
+# Shared tokens (--card-border, --card-shadow, --card-radius) keep every
+# card/button across every page speaking the same visual language.
 # --------------------------------------------------------------------------
 st.markdown(
     """
     <style>
     .stApp {
-        --card-border: #E2E8F0;
-        --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        --card-radius: 16px;
+        --card-border: #EEF2F6;
+        --card-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+        --card-radius: 18px;
         --accent-grad: linear-gradient(120deg, #0f172a 0%, #0f766e 55%, #10b981 100%);
-        background: linear-gradient(180deg, #F8FAFC 0%, #EDF2F7 100%);
-        background-attachment: fixed;
+        background: #F8FAFC;
     }
-    .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1180px; }
+    .block-container { padding-top: 1.8rem; padding-bottom: 3rem; max-width: 1080px; }
     h1, h2, h3 { letter-spacing: -0.01em; color: #0f172a; }
 
     /* -- Consistent button/input/divider rhythm across every page -- one
        shared shape language instead of each widget using Streamlit's raw
-       defaults, so the whole app reads as one designed product. Buttons are
-       pill-shaped with a soft lift-and-glow on hover; primaryColor in
-       .streamlit/config.toml drives the vibrant emerald fill on "primary"
-       buttons (Log In, Sign Up, Save, etc.) so we don't have to chase
-       Streamlit's internal button markup across versions with CSS. -- */
+       defaults. Buttons are pill-shaped with a subtle hover lift;
+       primaryColor in .streamlit/config.toml drives the emerald fill on
+       "primary" buttons (Log In, Sign Up, Save, etc.) so we don't have to
+       chase Streamlit's internal button markup across versions with CSS. -- */
     .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
         border-radius: 999px;
         font-weight: 700;
-        padding: 0.55rem 1.35rem;
+        padding: 0.5rem 1.25rem;
         border-color: var(--card-border);
-        transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.14);
-        filter: brightness(1.04);
-    }
-    .stButton > button:active, .stDownloadButton > button:active, .stFormSubmitButton > button:active {
-        transform: translateY(0);
-        filter: brightness(0.98);
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.10);
     }
     div[data-testid="stTextInput"] input,
     div[data-testid="stTextArea"] textarea,
     div[data-baseweb="select"] > div {
         border-radius: 10px !important;
     }
-    hr { margin: 0.7rem 0 !important; opacity: 0.14; }
+    hr { margin: 0.6rem 0 !important; opacity: 0.10; }
     div[data-testid="stExpander"] {
         border-radius: var(--card-radius);
         border: 1px solid var(--card-border) !important;
-        box-shadow: var(--card-shadow);
+        box-shadow: none;
     }
     div[data-testid="column"] { padding: 0 8px; }
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: var(--card-radius) !important;
+        border-color: var(--card-border) !important;
         box-shadow: var(--card-shadow);
     }
 
-    /* -- Pill-style tabs (Log In / Sign Up / Continue as Guest, and the
-       Transit / Air Quality / Community Hub tabs) instead of Streamlit's
-       plain underlined default. -- */
+    /* -- Simple pill-style tabs -- */
     div[data-baseweb="tab-list"] {
-        gap: 6px;
-        background: #eef2f7;
-        padding: 6px;
+        gap: 4px;
+        background: #F1F5F9;
+        padding: 5px;
         border-radius: 999px;
-        border: 1px solid var(--card-border);
     }
     div[data-baseweb="tab"] {
         border-radius: 999px !important;
-        padding: 8px 20px !important;
+        padding: 7px 18px !important;
         font-weight: 700;
     }
     div[data-baseweb="tab-highlight"] { background: transparent !important; }
-    div[data-baseweb="tab"][aria-selected="true"] {
-        background: #ffffff;
-        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-    }
+    div[data-baseweb="tab"][aria-selected="true"] { background: #ffffff; }
 
-    /* -- Branding hero card (Home page, and other lightweight headers) --
-       deep slate fading into a vibrant emerald/teal accent, large callout
-       type, and a row of structured badge tags underneath the tagline. -- */
+    /* -- The single bold gradient moment per page: the Home page hero,
+       and (below) the dashboard's outlook banner. Kept short on purpose --
+       one headline, one supporting line, nothing else competing for
+       attention here. -- */
     .hero-banner {
         background: var(--accent-grad);
-        border-radius: 22px;
-        padding: 34px 38px;
-        margin-bottom: 22px;
-        color: #ffffff;
-        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
-    }
-    .hero-banner .hero-eyebrow {
-        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em;
-        font-weight: 800; color: rgba(255,255,255,0.75); margin-bottom: 10px;
-    }
-    .hero-banner h1 { color: #ffffff; margin-bottom: 10px; font-size: 2.5rem; line-height: 1.12; font-weight: 800; }
-    .hero-banner p { color: rgba(255,255,255,0.92); margin: 0; font-size: 1.08rem; max-width: 640px; line-height: 1.55; }
-    .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-    .hero-badge {
-        background: rgba(255,255,255,0.14);
-        border: 1px solid rgba(255,255,255,0.3);
-        color: #ffffff;
-        padding: 7px 16px;
-        border-radius: 999px;
-        font-size: 0.82rem;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        white-space: nowrap;
-    }
-
-    /* -- Elevated "feature preview" cards (Home page, logged-out) -- */
-    .preview-card {
-        background: #ffffff;
-        border: 1px solid var(--card-border);
         border-radius: var(--card-radius);
-        box-shadow: var(--card-shadow);
-        padding: 18px 20px;
-        margin-bottom: 14px;
+        padding: 30px 34px;
+        margin-bottom: 20px;
+        color: #ffffff;
     }
-    .preview-eyebrow {
-        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
-        font-weight: 800; color: #64748b; margin-bottom: 10px;
-        display: flex; justify-content: space-between; align-items: center;
-    }
-    .preview-live-dot {
-        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-        background: #10b981; margin-right: 5px; box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
-    }
-    .delay-pill {
-        display: inline-flex; align-items: center; gap: 8px;
-        padding: 8px 16px; border-radius: 999px; font-weight: 700; font-size: 0.95rem;
-    }
-    .pill-good    { background: rgba(16,185,129,0.12); color: #067a55; }
-    .pill-caution { background: rgba(240,162,2,0.14); color: #8a5a00; }
-    .pill-hazard  { background: rgba(185,28,28,0.12); color: #b91c1c; }
+    .hero-banner h1 { color: #ffffff; margin-bottom: 8px; font-size: 2.1rem; line-height: 1.15; font-weight: 800; }
+    .hero-banner p { color: rgba(255,255,255,0.9); margin: 0; font-size: 1rem; max-width: 600px; line-height: 1.5; }
 
-    .feature-card {
-        background: #ffffff;
-        border: 1px solid var(--card-border);
-        border-radius: var(--card-radius);
-        box-shadow: var(--card-shadow);
-        padding: 20px 20px;
-        min-height: 148px;
-    }
-    .feature-card .feature-icon { font-size: 1.5rem; margin-bottom: 8px; }
-    .feature-card .feature-title { font-weight: 800; font-size: 1.02rem; color: #0f172a; margin-bottom: 6px; }
-    .feature-card .feature-body { font-size: 0.88rem; color: #475569; line-height: 1.5; }
-
-    /* -- The "Aha" outlook banner -- the very first thing on the dashboard,
-       color-coded by today's overall verdict (see outlook.py). Colors are
-       set inline per-render via style="background:...;color:...", these
-       rules just handle layout/shape. -- */
+    /* -- The "Aha" outlook banner -- the very first thing on the
+       dashboard, color-coded by today's overall verdict (see outlook.py).
+       Colors are set inline per-render via style="background:...", this
+       just handles layout/shape. -- */
     .outlook-banner {
-        border-radius: 22px;
-        padding: 28px 32px;
+        border-radius: var(--card-radius);
+        padding: 26px 30px;
         margin-bottom: 18px;
-        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
     }
     .outlook-banner .outlook-eyebrow {
         font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.09em;
         font-weight: 800; opacity: 0.85; margin-bottom: 8px;
     }
-    .outlook-banner h1 { margin: 0 0 8px 0; font-size: 2.05rem; line-height: 1.15; }
-    .outlook-banner .outlook-sub { font-size: 1.05rem; font-weight: 700; margin: 0; }
-    .outlook-banner .outlook-lead { font-size: 0.92rem; opacity: 0.9; margin-top: 8px; }
+    .outlook-banner h1 { margin: 0 0 6px 0; font-size: 1.9rem; line-height: 1.15; }
+    .outlook-banner .outlook-sub { font-size: 1rem; font-weight: 600; margin: 0; }
 
-    /* -- Vivid, color-coded status tiles (Transit / AQI / Pollen) -- */
+    /* -- Calm, scannable status tiles (Transit / Air Quality) -- plain
+       white cards with a bold number and a small color-coded badge pill,
+       instead of a loud full-color background. -- */
     .status-tile {
-        border-radius: 18px;
-        padding: 18px 20px;
-        min-height: 132px;
-        margin-bottom: 12px;
-        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+        background: #ffffff;
+        border: 1px solid var(--card-border);
+        border-radius: var(--card-radius);
+        padding: 20px 22px;
+        min-height: 128px;
+        box-shadow: var(--card-shadow);
     }
     .status-tile .tile-label {
-        font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.06em;
-        font-weight: 800; opacity: 0.85; margin-bottom: 8px;
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
+        font-weight: 700; color: #64748b; margin-bottom: 10px;
     }
-    .status-tile .tile-value { font-size: 1.65rem; font-weight: 800; line-height: 1.2; }
-    .status-tile .tile-note { font-size: 0.84rem; margin-top: 8px; opacity: 0.92; line-height: 1.4; }
-    .tile-good    { background: linear-gradient(135deg, #12a454 0%, #0d9488 100%); color: #ffffff; }
-    .tile-caution { background: linear-gradient(135deg, #f7c948 0%, #f0a202 100%); color: #3d2a00; }
-    .tile-hazard  { background: linear-gradient(135deg, #e64848 0%, #b91c1c 100%); color: #ffffff; }
+    .status-tile .tile-value { font-size: 1.7rem; font-weight: 800; color: #0f172a; line-height: 1.15; }
+    .status-tile .tile-note { font-size: 0.85rem; color: #64748b; margin-top: 10px; line-height: 1.45; }
+
+    /* -- Small color-coded badge pill -- the app's ONE way of signaling
+       good/caution/hazard, reused by the status tiles and the
+       Environmental Health & Pollen Outlook card so the whole app shares
+       one color language instead of each card inventing its own. -- */
+    .tile-badge {
+        display: inline-block; margin-top: 6px; padding: 4px 12px;
+        border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+    }
+    .tile-badge-good    { background: rgba(16, 163, 74, 0.12); color: #0f7a3d; }
+    .tile-badge-caution { background: rgba(217, 119, 6, 0.14); color: #92600a; }
+    .tile-badge-hazard  { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+
+    .stat-label {
+        font-size: 0.75rem; font-weight: 700; color: #64748b;
+        text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;
+    }
+    .stat-value { font-size: 1.05rem; font-weight: 700; color: #0f172a; line-height: 1.4; }
 
     .briefing-card {
         background: #ffffff;
@@ -632,41 +583,43 @@ with st.sidebar:
         )
 
     st.divider()
+    # Saved locations keeps its own internal expander ("➕ Save current
+    # location"), so it has to stay OUTSIDE the "More options" expander
+    # below -- Streamlit doesn't allow nesting one expander inside another.
     user_profile.render_saved_locations_sidebar(
         current_city=city, current_zip=selected_zip["zip"], current_neighborhood=selected_zip["neighborhood"],
         city_key=CITY_KEY, zip_key=ZIP_KEY, zip_city_context_key=ZIP_CITY_CONTEXT_KEY,
     )
 
-    st.divider()
-    user_profile.render_profile_toggles()
-
-    st.divider()
-    user_profile.render_notification_preferences()
-
     def _log_out_and_go_home():
         accounts.log_out()
         st.session_state.view = "home"
 
-    if accounts.is_logged_in():
+    # Everything below this point is secondary to the core "pick a city,
+    # see today's outlook" flow -- grouped into one collapsed section so
+    # the sidebar's primary job (location) isn't buried under it.
+    with st.expander("⚙️ More options"):
+        user_profile.render_profile_toggles()
         st.divider()
-        st.markdown("#### 👤 Your account")
-        st.caption(accounts.storage_mode_label())
-        if st.button("💾 Save city/ZIP/profile as my defaults", use_container_width=True):
-            saved_ok = accounts.save_preferences(accounts.current_user(), city, selected_zip["zip"], user_profile.get_profile())
-            if saved_ok:
-                st.success("Saved — you'll see this instantly on your Home page from now on.")
-            else:
-                st.error("Couldn't save your defaults right now — please try again in a moment.")
-        st.button("Log out", use_container_width=True, key="sidebar_logout", on_click=_log_out_and_go_home)
+        user_profile.render_notification_preferences()
 
-    st.divider()
-    st.caption(
-        f"**{len(CITY_NAMES)} real cities, real transit agencies, real station names.** Live "
-        "arrival times and air-quality readings use clearly-labeled simulated "
-        "or fallback data where a live feed isn't available — see each tab "
-        "for details."
-    )
-    st.caption("Built with Streamlit, Plotly, and the OpenAQ API.")
+        if accounts.is_logged_in():
+            st.divider()
+            st.markdown("**👤 Your account**")
+            st.caption(accounts.storage_mode_label())
+            if st.button("💾 Save city/ZIP/profile as my defaults", use_container_width=True):
+                saved_ok = accounts.save_preferences(accounts.current_user(), city, selected_zip["zip"], user_profile.get_profile())
+                if saved_ok:
+                    st.success("Saved — you'll see this instantly on your Home page from now on.")
+                else:
+                    st.error("Couldn't save your defaults right now — please try again in a moment.")
+            st.button("Log out", use_container_width=True, key="sidebar_logout", on_click=_log_out_and_go_home)
+
+        st.divider()
+        st.caption(
+            f"{len(CITY_NAMES)} real cities and transit systems. Some readings are simulated where "
+            "a live feed isn't available for your location — each tab says which."
+        )
 
     st.divider()
     feedback_identity = accounts.current_user() if accounts.is_logged_in() else community.get_guest_id()
@@ -709,11 +662,19 @@ except Exception:
     }
 
 try:
-    pollen_reading = pollen.simulate_pollen(city, selected_zip["zip"], now=city_now)
+    # Live Open-Meteo PM2.5/pollen reading when possible, gracefully folding
+    # in the AQI we already computed above when live pollen counts aren't
+    # available for this location (the normal case for U.S. cities -- see
+    # pollen.py's docstring) -- falls all the way back to the fully
+    # simulated reading if the live call fails outright. Same dict shape
+    # either way, so nothing downstream needs to know or care which path ran.
+    pollen_reading = pollen.get_environmental_reading(
+        city, selected_zip["zip"], city_info.get("lat"), city_info.get("lon"), now=city_now, aqi_reading=aqi_reading,
+    )
 except Exception:
     pollen_reading = {"value": None, "category": "No data", "color": "#898781", "emoji": "❔",
                        "dominant_allergen": "", "advice": "Pollen data is unavailable right now.",
-                       "source": "simulated", "as_of": city_now}
+                       "action": "Check back later for an update.", "source": "unavailable", "as_of": city_now}
 
 # --------------------------------------------------------------------------
 # Daily Briefing text -- built once, shared by the Home page and the
@@ -759,20 +720,21 @@ st.markdown(
         <div class="outlook-eyebrow">Today's Outlook · {city}</div>
         <h1>{today_outlook['headline']}</h1>
         <p class="outlook-sub">{today_outlook['subtext']}</p>
-        <p class="outlook-lead" style="color:{colors['sub_text']}">{today_outlook['lead']}</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 # --------------------------------------------------------------------------
-# Three vivid, color-coded status tiles -- Transit / Air Quality / Pollen --
-# scannable well under 3 seconds, each tinted by its OWN tier from
-# today_outlook["tiers"] (not just the overall banner's tier), so a single
-# rough spot never gets visually buried by two good ones.
+# Two calm, scannable status tiles -- Transit / Air Quality -- a bold
+# number plus a small color-coded badge instead of a loud full-color
+# background. (Pollen no longer gets its own tile here -- the
+# Environmental Health & Pollen Outlook card just below does that job with
+# more real detail, so the same information isn't shown twice.)
 # --------------------------------------------------------------------------
 tiers = today_outlook["tiers"]
-tile_l, tile_m, tile_r = st.columns(3)
+
+tile_l, tile_r = st.columns(2)
 with tile_l:
     level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(
         transit_status.get("level"), "Unavailable"
@@ -781,40 +743,24 @@ with tile_l:
     outages = transit_status.get("elevator_outages", 0) or 0
     note = f"{delay_min} min avg delay" if delay_min is not None else "Delay data unavailable"
     note += f" · {outages} elevator outage{'s' if outages != 1 else ''}"
-    st.markdown(
-        f"""
-        <div class="status-tile tile-{tiers['transit']}">
-            <div class="tile-label">🚌 Transit</div>
-            <div class="tile-value">{level_label}</div>
-            <div class="tile-note">{note}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with tile_m:
-    aqi_val = aqi_reading.get("aqi")
-    st.markdown(
-        f"""
-        <div class="status-tile tile-{tiers['aqi']}">
-            <div class="tile-label">🌬️ Air Quality</div>
-            <div class="tile-value">{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'} · {aqi_reading.get('label', 'No data')}</div>
-            <div class="tile-note">{aqi_reading['risk']['advice'] if aqi_reading.get('risk') else 'No advice available.'}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    homepage.render_status_tile("🚌 Transit", level_label, note, tiers["transit"])
 with tile_r:
-    pollen_val = pollen_reading.get("value")
-    st.markdown(
-        f"""
-        <div class="status-tile tile-{tiers['pollen']}">
-            <div class="tile-label">🌼 Pollen</div>
-            <div class="tile-value">{pollen_reading.get('emoji', '❔')} {pollen_val if pollen_val is not None else '—'} · {pollen_reading.get('category', 'No data')}</div>
-            <div class="tile-note">{pollen_reading.get('advice', 'No advice available.')}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    aqi_val = aqi_reading.get("aqi")
+    value = f"{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'} · {aqi_reading.get('label', 'No data')}"
+    note = aqi_reading["risk"]["advice"] if aqi_reading.get("risk") else "No advice available."
+    homepage.render_status_tile("🌬️ Air Quality", value, note, tiers["aqi"])
+
+# --------------------------------------------------------------------------
+# Environmental Health & Pollen Outlook -- one clean card, three columns:
+# Asthma Hazard Level, Dominant Airborne Allergen, and a one-sentence
+# Recommended Action. Built from pollen.get_environmental_reading()'s live
+# Open-Meteo reading (or its PM2.5/AQI-based estimate, or its fully
+# simulated fallback -- see pollen.py) so this card can never disagree
+# with the tiles above or the outlook banner's own verdict. Shared with
+# the Home page's logged-in/out views via homepage.render_environmental_card
+# so there's exactly one implementation of this card, not two.
+# --------------------------------------------------------------------------
+homepage.render_environmental_card(pollen_reading, aqi_reading)
 
 # --------------------------------------------------------------------------
 # Dashboard's own Daily Briefing card -- kept as a smaller, secondary detail

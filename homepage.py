@@ -2,162 +2,48 @@
 homepage.py
 The Home view -- the default screen when the app launches.
 
-Logged OUT: a short, friendly pitch for the app plus Log In / Sign Up
-forms, and a "Continue as Guest" escape hatch (an account is never
-required -- every feature works fine without logging in, exactly as
-before this feature was added).
+Logged OUT: a short, minimal pitch for the app, a "Get started" card with
+Log In / Sign Up / Guest tabs, a quick "right now" snapshot for whatever
+city is selected in the sidebar, and the Environmental Health & Pollen
+Outlook card -- an account is never required, every feature works fine
+without logging in.
 
 Logged IN: a personalized "Welcome Back" dashboard built from the user's
-OWN saved home city and ZIP -- an instant Daily Briefing, a quick transit
-status chip, and an air-quality summary chip -- computed the same way as
-the main dashboard's own briefing (see app.py's "compute once" section),
-so nothing here can ever disagree with the full dashboard. No settings
-need re-entering.
+OWN saved home city and ZIP -- an instant Daily Briefing, transit/air
+quality tiles, and the same Environmental Health & Pollen Outlook card --
+computed the same way as the main dashboard (see app.py's "compute once"
+section), so nothing here can ever disagree with the full dashboard.
+
+DESIGN NOTE (Week 2 simplification pass): an earlier version of this page
+had a full gradient hero with a row of badge tags, a three-card live
+preview stack, AND a three-column feature grid below it -- it looked
+busy. This version keeps exactly one bold moment per page (the hero, or
+the outlook banner for a logged-in user) and otherwise favors a small
+number of calm, scannable cards over stacked prose or repeated cards
+saying similar things.
 """
 
 import streamlit as st
 
 import accounts
-import community
 
 
-def _feature_card(icon: str, title: str, body: str):
-    """One card in the logged-out landing page's 3-column feature grid --
-    replaces the old single paragraph of stacked raw text with something
-    that actually looks like a product's feature grid."""
-    st.markdown(
-        f"""
-        <div class="feature-card">
-            <div class="feature-icon">{icon}</div>
-            <div class="feature-title">{title}</div>
-            <div class="feature-body">{body}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _community_preview(city: str, neighborhood: str) -> dict:
-    """A real crowd-reported post for the visitor's own town if one already
-    exists (so a returning visitor sees genuine local activity), or an
-    honestly-labeled example post otherwise -- never a real post dressed up
-    as fake, and never a fake post dressed up as real. Defensive by design:
-    community lookups can fail (bad city/neighborhood, community.py not
-    fully initialized yet on a guest's very first run) without taking the
-    whole Home page down with it.
-    """
-    top = []
-    try:
-        community_id = community.community_id_for(city, neighborhood)
-        if community.get_community(community_id):
-            top = community.top_issues(community_id, n=1)
-    except Exception:
-        top = []
-
-    if top:
-        post = top[0]
-        upvotes = post.get("upvotes", set())
-        count = len(upvotes) if isinstance(upvotes, (set, list, tuple)) else 0
-        return {
-            "badge": "LIVE POST",
-            "category_label": community.CATEGORY_LABELS.get(post.get("category"), "💬 General Town Chat"),
-            "text": post.get("text") or "",
-            "count": count,
-            "author": post.get("author") or "A neighbor",
-        }
-    return {
-        "badge": "EXAMPLE",
-        "category_label": "🛠️ Local Infrastructure Issues",
-        "text": "Elevator at the Main St station has been out since Tuesday — anyone know if it's being fixed?",
-        "count": 12,
-        "author": "Guest-3f8a1",
-    }
-
-
-def _preview_stack(city: str, neighborhood: str, transit_status: dict, aqi_reading: dict, tiers: dict):
-    """Three elevated 'here's what you get' cards shown to a logged-out
-    visitor, right next to the login form -- an AQI reading, a transit
-    delay pill, and a community post. The AQI and transit cards use the
-    SAME already-computed reading app.py hands to the dashboard for
-    whatever city is currently selected in the sidebar, so a guest sees
-    genuinely live numbers, not a mocked-up placeholder, before ever
-    creating an account.
-    """
-    transit_status = transit_status if isinstance(transit_status, dict) else {}
-    aqi_reading = aqi_reading if isinstance(aqi_reading, dict) else {}
-    tiers = tiers if isinstance(tiers, dict) else {}
-    city_label = (city or "your city").split(",")[0] if city else "your city"
-
-    aqi_val = aqi_reading.get("aqi")
-    aqi_color = aqi_reading.get("color") or "#0f766e"
-    st.markdown(
-        f"""
-        <div class="preview-card">
-            <div class="preview-eyebrow">
-                <span>🌬️ Air Quality</span>
-                <span><span class="preview-live-dot"></span>Live · {city_label}</span>
-            </div>
-            <div style="font-size:2.1rem; font-weight:800; color:{aqi_color}; line-height:1;">
-                {aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'}
-            </div>
-            <div style="font-weight:700; color:#0f172a; margin-top:6px;">{aqi_reading.get('label', 'No data yet')}</div>
-            <div style="font-size:0.82rem; color:#64748b; margin-top:2px;">{neighborhood or city_label}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    level = transit_status.get("level")
-    level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(level, "Checking…")
-    tier = tiers.get("transit") if tiers.get("transit") in ("good", "caution", "hazard") else "caution"
-    outages = transit_status.get("elevator_outages", 0) or 0
-    delay_min = transit_status.get("delay_min")
-    delay_note = f"{delay_min} min avg delay" if delay_min is not None else "Pick a city to see live delays"
-    st.markdown(
-        f"""
-        <div class="preview-card">
-            <div class="preview-eyebrow">
-                <span>🚌 Transit</span>
-                <span><span class="preview-live-dot"></span>Live · {city_label}</span>
-            </div>
-            <span class="delay-pill pill-{tier}">🚌 {level_label}</span>
-            <div style="font-size:0.85rem; color:#64748b; margin-top:10px;">
-                {delay_note} · {outages} elevator outage{'s' if outages != 1 else ''} reported
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    preview = _community_preview(city, neighborhood)
-    st.markdown(
-        f"""
-        <div class="preview-card">
-            <div class="preview-eyebrow">
-                <span>🏘️ Community Hub</span>
-                <span>{preview['badge']}</span>
-            </div>
-            <div style="font-weight:700; color:#0f172a; font-size:0.92rem;">{preview['category_label']}</div>
-            <div style="font-size:0.92rem; color:#334155; margin-top:6px; line-height:1.45;">
-                &ldquo;{preview['text']}&rdquo;
-            </div>
-            <div style="font-size:0.78rem; color:#94a3b8; margin-top:10px;">👍 {preview['count']} · {preview['author']}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _status_tile(label: str, value_str: str, note: str, tier: str = "caution"):
-    """Same vivid color-coded tile used on the main dashboard (see
-    outlook.py / app.py's status-tile CSS) -- scaled down slightly so four
-    fit comfortably in a row here."""
+def render_status_tile(label: str, value: str, note: str, tier: str = "caution", compact: bool = False):
+    """A calm, scannable status tile -- a bold number plus a small
+    color-coded badge pill, shared by the main dashboard (app.py) and both
+    Home page views below, so there's exactly one visual definition of
+    "how we show a status" across the whole app. `compact=True` shrinks it
+    slightly for rows of 3-4 tiles instead of 2."""
     tier = tier if tier in ("good", "caution", "hazard") else "caution"
+    badge_text = {"good": "🟢 On track", "caution": "🟡 Worth a glance", "hazard": "🔴 Needs attention"}[tier]
+    style = "min-height:104px; padding:14px 16px;" if compact else ""
+    value_style = "font-size:1.3rem;" if compact else ""
     st.markdown(
         f"""
-        <div class="status-tile tile-{tier}" style="min-height:104px; padding:14px 16px;">
+        <div class="status-tile" style="{style}">
             <div class="tile-label">{label}</div>
-            <div class="tile-value" style="font-size:1.3rem;">{value_str}</div>
+            <div class="tile-value" style="{value_style}">{value}</div>
+            <span class="tile-badge tile-badge-{tier}">{badge_text}</span>
             <div class="tile-note">{note}</div>
         </div>
         """,
@@ -165,18 +51,73 @@ def _status_tile(label: str, value_str: str, note: str, tier: str = "caution"):
     )
 
 
+_HAZARD_TIER = {"Low": "good", "Moderate": "caution", "High": "caution", "Very High": "hazard", "Extreme": "hazard"}
+_HAZARD_BADGE_EMOJI = {"good": "🟢", "caution": "🟡", "hazard": "🔴"}
+_SOURCE_NOTES = {
+    "open-meteo (live pollen)": "🟢 Live pollen reading via Open-Meteo.",
+    "open-meteo (PM2.5 estimate)": (
+        "🟡 Live PM2.5 reading via Open-Meteo — real pollen counts aren't available for this "
+        "location, so the hazard level is estimated from PM2.5 and today's Air Quality Index."
+    ),
+    "simulated": "🧪 Simulated seasonal estimate — Open-Meteo's live reading wasn't available right now.",
+    "unavailable": "⚠️ Environmental data is temporarily unavailable.",
+}
+
+
+def render_environmental_card(pollen_reading: dict, aqi_reading: dict = None):
+    """The Environmental Health & Pollen Outlook card: one clean card,
+    three columns -- Asthma Hazard Level, Dominant Airborne Allergen, and
+    a one-sentence Recommended Action for sensitive groups. Built from
+    pollen.get_environmental_reading()'s live Open-Meteo reading (used
+    directly when real pollen counts exist for this location), its
+    PM2.5 + AQI based estimate (the normal case for U.S. cities, where
+    Open-Meteo's pollen model doesn't have coverage), or its fully
+    simulated fallback if the live API call failed outright -- see
+    pollen.py for the full three-case breakdown. Every field is read
+    defensively so a partial or malformed reading degrades to safe
+    placeholders instead of crashing this card.
+    """
+    pollen_reading = pollen_reading if isinstance(pollen_reading, dict) else {}
+    category = pollen_reading.get("category") or "No data"
+    tier = _HAZARD_TIER.get(category, "caution")
+    badge_text = f"{_HAZARD_BADGE_EMOJI[tier]} {category}"
+    dominant = pollen_reading.get("dominant_allergen") or "Not available right now"
+    action = pollen_reading.get("action") or "Check back later for an update."
+    source = pollen_reading.get("source", "simulated")
+    source_note = _SOURCE_NOTES.get(source, f"🟢 Live reading via Open-Meteo ({source}).")
+
+    try:
+        env_box = st.container(border=True)
+    except TypeError:
+        env_box = st.container()
+
+    with env_box:
+        st.markdown("##### 🌼 Environmental Health & Pollen Outlook")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown('<div class="stat-label">Asthma Hazard Level</div>', unsafe_allow_html=True)
+            st.markdown(f'<span class="tile-badge tile-badge-{tier}">{badge_text}</span>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="stat-label">Dominant Airborne Allergen</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stat-value">{dominant}</div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown('<div class="stat-label">Recommended Action</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stat-value">{action}</div>', unsafe_allow_html=True)
+        st.caption(source_note)
+
+
 def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str = None,
                        transit_status: dict = None, aqi_reading: dict = None, pollen_reading: dict = None,
                        outlook_data: dict = None, city_now=None):
-    """The logged-out landing page: a bold gradient hero card, a two-column
-    split (a styled 'get started' auth card next to a live feature-preview
-    stack), then a three-column feature grid -- replacing the old single
-    banner + wall of text with cards doing the visual work, per the Week 1
-    visual overhaul. Every optional value is normalized defensively, same
-    pattern as render_logged_in below, since a guest can land here before
-    the rest of app.py's "compute once" section has anything meaningful to
-    hand over (e.g. the very first run before a city is even resolved).
+    """The logged-out landing page: a short hero, a two-column split (a
+    'get started' auth card next to a compact live status snapshot), and
+    the Environmental Health & Pollen Outlook card. Every optional value
+    is normalized defensively since a guest can land here before the rest
+    of app.py's "compute once" section has anything meaningful to hand
+    over (e.g. the very first run before a city is even resolved).
     """
+    transit_status = transit_status if isinstance(transit_status, dict) else {}
+    aqi_reading = aqi_reading if isinstance(aqi_reading, dict) else {}
     outlook_data = outlook_data if isinstance(outlook_data, dict) else {}
     tiers = outlook_data.get("tiers", {})
     city_label = (city or "your city").split(",")[0] if city else "your city"
@@ -184,23 +125,15 @@ def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str 
     st.markdown(
         f"""
         <div class="hero-banner">
-            <div class="hero-eyebrow">🧭 Local Daily Companion</div>
             <h1>Your city, decoded every morning.</h1>
-            <p>Real transit systems, real EPA air-quality math, real U.S. cities — one instant
-            daily briefing for {city_label}. Sign up to save your spots and routes, or jump
-            right in as a guest — every feature works either way.</p>
-            <div class="hero-badges">
-                <span class="hero-badge">🚌 18 real transit systems</span>
-                <span class="hero-badge">🌬️ Live EPA air-quality math</span>
-                <span class="hero-badge">🏘️ Local community boards</span>
-                <span class="hero-badge">🔒 Secure, persistent accounts</span>
-            </div>
+            <p>Real transit systems, real EPA air-quality math, and a live environmental health
+            outlook for {city_label} — sign up to save your spots, or jump right in as a guest.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    col_auth, col_preview = st.columns([1, 1.05], gap="large")
+    col_auth, col_status = st.columns([1, 1], gap="large")
 
     with col_auth:
         # st.container(border=True) gives us a real, native elevated card
@@ -279,30 +212,23 @@ def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str 
 
                 st.button("👉 Take me to the dashboard", use_container_width=True, type="primary", on_click=_go_to_dashboard)
 
-    with col_preview:
-        _preview_stack(city, neighborhood, transit_status, aqi_reading, tiers)
+    with col_status:
+        st.markdown(f"#### Right now in {city_label}")
+        level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(
+            transit_status.get("level"), "Checking…"
+        )
+        outages = transit_status.get("elevator_outages", 0) or 0
+        delay_min = transit_status.get("delay_min")
+        note = f"{delay_min} min avg delay" if delay_min is not None else "Pick a city to see live delays"
+        note += f" · {outages} elevator outage{'s' if outages != 1 else ''}"
+        render_status_tile("🚌 Transit", level_label, note, tiers.get("transit"), compact=True)
 
-    st.write("")
-    st.markdown("#### Everything in one place")
-    feat_l, feat_m, feat_r = st.columns(3, gap="medium")
-    with feat_l:
-        _feature_card(
-            "🚌", "Track real transit",
-            "Next arrivals, delay patterns, and elevator/accessibility status across 18 real "
-            "U.S. transit systems, plus a station-to-station trip planner.",
-        )
-    with feat_m:
-        _feature_card(
-            "🌬️", "Real air-quality math",
-            "Live OpenAQ readings where available, EPA's own AQI formula otherwise, and a "
-            "plain-language Asthma Hazard Risk for any ZIP code you type in.",
-        )
-    with feat_r:
-        _feature_card(
-            "📰", "One daily briefing",
-            "Transit, air quality, and pollen rolled into a single friendly sentence and a "
-            "color-coded outlook — always in your city's own local time.",
-        )
+        aqi_val = aqi_reading.get("aqi")
+        value = f"{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'} · {aqi_reading.get('label', 'No data')}"
+        aqi_note = aqi_reading["risk"]["advice"] if aqi_reading.get("risk") else "No advice available yet."
+        render_status_tile("🌬️ Air Quality", value, aqi_note, tiers.get("aqi"), compact=True)
+
+    render_environmental_card(pollen_reading, aqi_reading)
 
 
 def render_logged_in(username: str, city: str = None, neighborhood: str = None, zip_code: str = None,
@@ -379,29 +305,23 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4 = st.columns(4, gap="small")
+    c1, c2, c3 = st.columns(3, gap="small")
     with c1:
         level = transit_status.get("level")
         level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(level, "Unknown")
         outages = transit_status.get("elevator_outages", 0)
-        _status_tile("🚌 Transit", level_label, f"{outages} elevator outage(s) reported", tiers.get("transit"))
+        render_status_tile("🚌 Transit", level_label, f"{outages} elevator outage(s) reported", tiers.get("transit"), compact=True)
     with c2:
         aqi_val = aqi_reading.get("aqi")
-        _status_tile(
+        render_status_tile(
             "🌬️ Air quality", f"{aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'}",
-            aqi_reading.get("label", "No data"), tiers.get("aqi"),
-        )
-    with c3:
-        pollen_val = pollen_reading.get("value")
-        _status_tile(
-            "🌼 Pollen", f"{pollen_reading.get('emoji', '❔')} {pollen_val if pollen_val is not None else '—'}",
-            pollen_reading.get("category", "No data"), tiers.get("pollen"),
+            aqi_reading.get("label", "No data"), tiers.get("aqi"), compact=True,
         )
     saved_routes = account.get("saved_routes", []) if account else []
-    with c4:
+    with c3:
         st.markdown(
             f"""
-            <div class="metric-card" style="min-height:104px; padding:14px 16px; --accent:#4a3aa7;">
+            <div class="metric-card" style="min-height:104px; padding:14px 16px; --accent:#0f766e;">
                 <div class="mc-label">⭐ Saved routes</div>
                 <div class="mc-value" style="font-size:1.3rem;">{len(saved_routes)}</div>
                 <div class="mc-note">Quick trips saved from the trip planner</div>
@@ -409,6 +329,9 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
             """,
             unsafe_allow_html=True,
         )
+
+    st.write("")
+    render_environmental_card(pollen_reading, aqi_reading)
 
     if saved_routes:
         st.markdown("#### ⭐ Your saved routes")

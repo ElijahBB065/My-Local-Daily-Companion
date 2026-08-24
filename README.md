@@ -36,11 +36,15 @@ top:
    dashboard, combining right-now transit and air-quality status, e.g.
    *"Good morning! Transit is running smoothly, but limit long outdoor
    runs today due to elevated AQI."*
-7. **🌼 Pollen Index** — a simulated daily pollen reading (0-12 scale,
-   matching Pollen.com/National Allergy Bureau conventions) following a
-   real seasonal curve — tree pollen in spring, grass in early summer,
-   ragweed in late summer/fall, mostly mold in winter — deterministic per
-   city, ZIP, and calendar day.
+7. **🌼 Environmental Health & Pollen Outlook** — tries a real, live
+   PM2.5/pollen reading from the free Open-Meteo Air Quality API first;
+   gracefully estimates an Asthma Hazard Level from PM2.5 + AQI when live
+   pollen counts aren't available for your location (the normal case for
+   U.S. cities); and falls back to a fully simulated seasonal reading
+   (0-12 scale, matching Pollen.com/National Allergy Bureau conventions)
+   if the live call fails outright. One clean card shows the Asthma Hazard
+   Level, the Dominant Airborne Allergen, and a one-sentence Recommended
+   Action — see "Live pollen & PM2.5 via Open-Meteo" below.
 8. **⚡ "Your Day Is Clear" outlook banner** — the very first thing on the
    dashboard: one bold, color-coded verdict (green "clear," amber
    "caution," red "hazard") rolled up from transit + air quality + pollen,
@@ -255,56 +259,108 @@ feedback to persist and reach you automatically, the natural upgrade is to
 have `submit_feedback()` write into the same SQLite database `accounts.py`
 already sets up (one more small table), rather than only `st.session_state`.
 
-## 🎨 The Home page: a modern web-app landing page
+## 🎨 A minimalist redesign
 
-The logged-out Home page was rebuilt from a plain banner-plus-stacked-text
-layout into a proper landing page, using only Streamlit's own `st.columns`,
-`st.tabs`, and `st.container(border=True)` plus one shared CSS system in
-`app.py` — no extra front-end framework or JS.
+An earlier pass gave the Home page a bold gradient hero with a row of badge
+tags, a three-card live preview stack, AND a three-column feature grid
+below it — taken together, it read as busy rather than clean. This pass
+dialed that back deliberately: fewer distinct blocks, more whitespace, and
+color used sparingly enough that it still means something when it appears.
 
-- **Hero card.** A large, rounded gradient card (deep slate fading into a
-  vibrant emerald/teal — `--accent-grad` in `app.py`'s CSS) with bold
-  callout type and a row of structured badge tags ("18 real transit
-  systems," "Live EPA air-quality math," "Local community boards,"
-  "Secure, persistent accounts") replaces the old plain single-line banner.
-- **Two-column "get started" layout.** A styled, elevated card (a real
-  `st.container(border=True)`, not just a background image) holds the Log
-  In / Sign Up / Guest tabs on the left; a stack of three live preview
-  cards sits on the right.
-- **Live feature previews, not mockups.** The air-quality and transit
-  preview cards show the *exact same* already-computed reading for
-  whatever city is currently selected in the sidebar — the same
-  `transit_status`/`aqi_reading` app.py hands to the full dashboard — so a
-  guest sees genuinely live numbers before creating an account, not
-  placeholder data. The community preview card shows a real top post from
-  the visitor's own town if one already exists (labeled "LIVE POST"), or
-  an honestly-labeled "EXAMPLE" post otherwise — it never dresses up a
-  fake post as real, or a real one as fake.
-- **Three-column feature grid.** The old single paragraph of stacked
-  feature bullets is now three elevated cards (Transit / Air Quality /
-  Daily Briefing), each with an icon, a bold title, and one line of body
-  copy.
-- **One consistent card + button system, everywhere.** A soft off-white
-  canvas gradient (`#F8FAFC` → `#EDF2F7`) replaces the previous
-  transit-line background texture; every card across every page (the
-  Home page, the Dashboard's status tiles and briefing card, the Community
-  Hub's post and digest cards) now shares the same white background,
-  `#E2E8F0` border, 16px radius, and soft drop shadow; every button is
-  pill-shaped with a smooth lift-and-glow hover animation; and
-  `.streamlit/config.toml`'s `primaryColor` now matches the new emerald
-  accent, so Streamlit's own "primary" button styling (Log In, Sign Up,
-  Save) stays in sync with the rest of the design without fragile
-  version-specific CSS selectors chasing Streamlit's internal button
-  markup.
-- **Pill-style tabs.** The Log In / Sign Up / Guest tabs (and the Transit /
-  Air Quality / Community Hub dashboard tabs) now render as a rounded pill
-  switcher instead of Streamlit's default underlined tab strip.
+- **One bold moment per page, not several.** Every page gets exactly one
+  vivid gradient element — the Home page's hero card, or the Dashboard's
+  outlook banner — and it's kept to a single headline plus one supporting
+  line. Everything else on the page is a plain white card, so that one
+  moment actually reads as "look here first" instead of competing with
+  four other colorful things.
+- **Calm status tiles.** The old Transit/Air Quality/Pollen tiles used to
+  be fully filled with a saturated green/amber/red gradient. They're now
+  plain white cards with a bold dark number and a small color-coded badge
+  pill (🟢/🟡/🔴) — the same information, communicated with a lot less
+  visual noise. The same badge system is reused by the new Environmental
+  Health card below, so the whole app has exactly one way of signaling
+  "good / worth a glance / needs attention," not a different color
+  language per card.
+- **Fewer, calmer cards overall.** Every card across the app — status
+  tiles, the briefing card, the Community Hub's post and digest cards —
+  now shares one flat off-white canvas (`#F8FAFC`), a hairline `#EEF2F6`
+  border, an 18px radius, and one soft, subtle shadow, instead of each
+  card mixing its own border/shadow/radius. Buttons are pill-shaped with a
+  gentle hover lift, and `.streamlit/config.toml`'s `primaryColor` matches
+  the emerald accent so Streamlit's own "primary" button fill (Log In,
+  Sign Up, Save) stays in sync automatically, without fragile
+  version-specific CSS chasing Streamlit's internal button markup.
+- **A collapsible sidebar.** The sidebar used to stack city/ZIP selection,
+  saved locations, the sensitivity profile, notification preferences, the
+  account section, and two paragraphs of "about this app" text all as
+  permanently-visible sections. City/ZIP and saved locations (the things
+  you touch every visit) stay visible; the sensitivity profile,
+  notification preferences, account actions, and the "about" caption are
+  now grouped into one collapsed **"⚙️ More options"** expander, so the
+  sidebar's primary job — picking where you are — isn't buried under
+  settings you set once and forget.
+- **The Home page, simplified.** Logged out, you get the hero, a
+  "Get started" card (Log In / Sign Up / Guest tabs in a real
+  `st.container(border=True)` card) next to a compact two-tile "right now
+  in `<city>`" snapshot, and the Environmental Health & Pollen Outlook
+  card below — that's it. The earlier three-card preview stack, the
+  three-column feature grid, and the community post preview were cut:
+  they demoed the same handful of ideas the tiles and the environmental
+  card already show, just repeated in more boxes.
 
 `st.container(border=True)` needs a reasonably recent Streamlit
 (`requirements.txt` already pins `streamlit>=1.43`, well past when this
 landed); if an older Streamlit is ever installed instead, the auth card
-falls back to a plain, unbordered container rather than crashing the Home
-page over a styling nicety.
+and the Environmental Health card both fall back to a plain, unbordered
+container rather than crashing the page over a styling nicety.
+
+## 🌼 Live pollen & PM2.5 via Open-Meteo, and the Environmental Health card
+
+The Pollen Index used to be 100% simulated (see "What's real, and what's
+simulated" below for why — there's no broadly available free real-time
+pollen API). This pass adds a real, keyless integration with
+[Open-Meteo's Air Quality API](https://open-meteo.com/en/docs/air-quality-api)
+(`pollen.fetch_open_meteo_environmental()`), which is tried FIRST on every
+run before falling back to anything simulated.
+
+**Please read this honest caveat before assuming a "PM2.5 estimate" badge
+means something is broken:** Open-Meteo's pollen fields (alder, birch,
+grass, mugwort, olive, ragweed) come from a European (CAMS) model and are
+typically `null` for locations outside Europe — which is every one of this
+app's 18 U.S. cities. A live call for a U.S. city will almost always come
+back with real PM2.5/PM10 (those readings ARE global) and no pollen counts
+at all. That's the expected, common case here, not a bug — and it's
+exactly the scenario `pollen.estimate_hazard_from_pm()` exists to handle:
+
+1. **Live pollen counts exist for this location** (rare here, but used
+   directly when present) — the highest-reading pollen type becomes the
+   Dominant Airborne Allergen, and the Asthma Hazard Level is the *worse*
+   of that pollen category and the already-computed Air Quality Index
+   (same "worst signal wins" rule `outlook.py` already uses elsewhere).
+2. **Live call succeeds, no pollen counts returned** (the normal case for
+   every city in this app) — the Asthma Hazard Level is estimated from the
+   live PM2.5 reading (bucketed with the same EPA breakpoints
+   `air_quality.py`'s own AQI math uses) and the AQI, again taking the
+   worse of the two. The Dominant Airborne Allergen is honestly reported
+   as the AQI's own dominant pollutant (PM2.5, PM10, or Ozone) rather than
+   invented.
+3. **The live call fails outright** (no network, timeout, bad response) —
+   falls all the way back to the original fully-simulated seasonal
+   `pollen.simulate_pollen()` reading, exactly as before this feature
+   existed. Nothing about this integration can newly crash the app: every
+   step is wrapped so a bad response, a timeout, or missing coordinates
+   degrades to the next fallback instead of raising.
+
+**🌼 Environmental Health & Pollen Outlook card:** one clean card with
+three columns — **Asthma Hazard Level** (a colored badge: 🟢 Low, 🟡
+Moderate/High, 🔴 Very High/Extreme), **Dominant Airborne Allergen**, and
+a one-sentence **Recommended Action** for sensitive groups — plus a small
+caption disclosing exactly which of the three cases above produced this
+reading. It appears once on the Dashboard (replacing the old separate
+Pollen tile, so the same information isn't shown in two places) and once
+on the Home page for both guests and logged-in users, all calling the same
+`homepage.render_environmental_card()` function so there's exactly one
+implementation of this card, not several drifting copies.
 
 ## Does this use TODAY's real date/time — in the right city's timezone?
 
@@ -456,25 +512,26 @@ three-tier scale (good / caution / hazard), and the overall banner shows
 the *worst* of the three — a single hazard (a major delay, unhealthy air,
 extreme pollen) drives the headline, not an average that could quietly
 bury it. The subtext line underneath is built from the same real numbers,
-e.g. *"Air quality is great · 0 transit delays · Pollen is low."* Three
-matching vivid tiles just below the banner break the same verdict out by
-category (🚌 Transit / 🌬️ Air Quality / 🌼 Pollen), each independently
-color-coded, so a single rough spot is visible even when the other two are
-fine. This exact same banner + tiles also appear on a logged-in user's
-personalized Home page — never a separate, possibly-contradicting verdict.
+e.g. *"Air quality is great · 0 transit delays · Pollen is low."* Two
+matching status tiles just below the banner break the verdict out by
+category (🚌 Transit / 🌬️ Air Quality), each with its own color-coded
+badge, so a rough spot is visible even when the other is fine; the
+Environmental Health & Pollen Outlook card handles the pollen/hazard side
+in more detail (see below) rather than repeating it in a third tile. This
+same banner + tiles + card also appear on a logged-in user's personalized
+Home page — never a separate, possibly-contradicting verdict.
 
-**🌼 Pollen Index (`pollen.py`):** there's no broadly available free
-real-time pollen API the way OpenAQ covers air quality, so — same honesty
-pattern as the rest of this app — pollen is clearly-labeled **simulated**
-data. It isn't random noise: the baseline follows a realistic Northern
-Hemisphere seasonal curve (tree pollen peaks in spring, grass in early
-summer, ragweed/weed pollen in late summer/early fall, mostly mold
-spores in winter) and is deterministic per city + ZIP + calendar day, so
-it reads as "today's forecast" rather than reshuffling on every page
-reload — but it genuinely changes from one real day to the next, which is
-the honest behavior for something that does vary daily in real life. Uses
-the same 0-12 scale as real pollen indices (Pollen.com / the National
-Allergy Bureau).
+**🌼 Pollen & environmental hazard (`pollen.py`):** tries a real, live
+PM2.5/pollen reading from Open-Meteo's free Air Quality API first, falls
+back to estimating a hazard level from PM2.5 + AQI when live pollen counts
+aren't available (the normal case for U.S. cities), and falls back further
+to a fully simulated seasonal reading if the live call fails outright —
+see "Live pollen & PM2.5 via Open-Meteo" below for the full breakdown. The
+simulated fallback still follows a realistic Northern Hemisphere seasonal
+curve (tree pollen peaks in spring, grass in early summer, ragweed/weed
+pollen in late summer/early fall, mostly mold spores in winter),
+deterministic per city + ZIP + calendar day, using the same 0-12 scale as
+real pollen indices (Pollen.com / the National Allergy Bureau).
 
 **🔔 Daily Briefing Preferences:** a "Remind me every morning" toggle plus
 a preferred time, in the sidebar. **Read this note in the app itself, not
@@ -651,10 +708,15 @@ What's **simulated**, and clearly labeled as such in the UI:
   fails for any reason (no nearby station, network issue, timeout).
   Every AQI number — live or simulated — is computed with the EPA's real,
   current (2024-revised) AQI breakpoint formula, not a made-up scale.
-- **Pollen Index.** There's no broadly available free real-time pollen API
-  the way OpenAQ covers air quality, so this is always clearly-labeled
-  simulated data, following a realistic seasonal curve per city/ZIP/day —
-  see "Today's Outlook, Pollen Index, and one-click export" above.
+- **Pollen & environmental hazard**, but only as a *fallback*, same pattern
+  as air quality: tries a live PM2.5/pollen reading from the free
+  Open-Meteo Air Quality API first. Real pollen counts specifically are
+  usually unavailable for U.S. locations (Open-Meteo's pollen model is
+  European-only today), in which case the hazard level is honestly
+  estimated from live PM2.5 + AQI instead of showing nothing — only if the
+  live call fails outright does this fall back to a fully simulated,
+  clearly-labeled seasonal reading. See "Live pollen & PM2.5 via
+  Open-Meteo" above for the full breakdown.
 
 Community-flagged accessibility reports, saved locations, and your
 sensitivity profile toggles are all real user input, held only in the
@@ -680,7 +742,7 @@ local_daily_companion/
 ├── user_profile.py        # Saved locations + sensitivity profile + personal alert badges + notification prefs
 ├── briefing.py            # Daily Briefing sentence builder (pure logic, easy to unit-test)
 ├── outlook.py             # Rolls transit+AQI+pollen into one good/caution/hazard verdict (pure logic)
-├── pollen.py              # Simulated daily Pollen Index, seasonal curve, per city/ZIP/day
+├── pollen.py              # Live Open-Meteo pollen/PM2.5 + hazard estimate, simulated fallback
 ├── exports.py             # .ics calendar event + plain-text daily summary builders (pure logic)
 ├── community.py           # Tab 3 — town/neighborhood message board, upvotes, community digest panel
 ├── charts.py              # Plotly chart builders
@@ -907,15 +969,39 @@ files (covering every pass described in this README) were re-run clean
 together immediately before this delivery.*
 
 *The Home page visual overhaul got a ninth dedicated test file on top of
-all of the above. It confirmed `render_logged_out()` survives being called
+all of the above, confirming `render_logged_out()` survives being called
 with every argument missing (the very first run's shape, before a city is
 even resolved) and with deliberately wrong types (a string where a dict
-was expected, a list where a dict was expected) without crashing; that
-`_community_preview()` correctly falls back to an honestly-labeled
-"EXAMPLE" post when the visitor's town has no community yet, and correctly
-surfaces a real "LIVE POST" (with the real author and text) once one
-exists; that the new preview stack renders cleanly for all 18 cities with
-both realistic and empty/malformed data; and that the full `app.py` Home
-view — hero card, two-column auth/preview layout, and three-column feature
-grid together — runs clean across all 18 cities for a logged-out visitor.
-All 9 test files were re-run together immediately before this delivery.*
+was expected, a list where a dict was expected) without crashing, and that
+the full `app.py` Home view ran clean across all 18 cities for a
+logged-out visitor. (This test file was rewritten again for the
+minimalist redesign pass below, since several of the functions it
+originally covered — the three-card preview stack, the community post
+preview, the three-column feature grid — no longer exist.)*
+
+*The minimalist redesign and Open-Meteo integration added two more
+dedicated test files. One exercises `pollen.py`'s new live-data path
+directly, with `requests.get` monkeypatched to simulate: a successful
+response with real pollen counts (confirms the highest-reading pollen
+type is correctly chosen as the dominant allergen); a successful response
+with pollen entirely absent, the realistic case for every U.S. city this
+app covers (confirms the PM2.5/AQI-based estimate kicks in and correctly
+takes the WORSE of the two); a network failure and a malformed response
+(both confirmed to return `None` cleanly, never raise); and
+`get_environmental_reading()`'s full three-case fallback chain end to end,
+including with no coordinates at all. Separately, this sandbox has no
+outbound network access to arbitrary hosts (the same limitation noted
+below for PyPI/OpenAQ), so a real call to Open-Meteo was also attempted
+with the actual `requests` library during development — it failed with a
+connection error exactly as expected, which is itself a live confirmation
+that the graceful-fallback path this feature depends on works against a
+genuine failure, not just a simulated one.
+
+The other new test file rewrote the Home-page coverage for the redesign:
+it confirms `render_environmental_card()` survives every hazard category
+(including unrecognized and missing categories), every reading `source`
+string, and non-dict input; that `render_status_tile()` survives every
+tier including invalid ones; and that the full `app.py` runs clean across
+all 18 cities in BOTH the Home view and the Dashboard view with the new
+two-tile-plus-environmental-card layout. All 10 test files were re-run
+together immediately before this delivery.*
