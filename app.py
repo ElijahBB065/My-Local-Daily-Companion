@@ -876,14 +876,55 @@ briefing_text = (
 
 # --------------------------------------------------------------------------
 # Home view vs. Dashboard view
+#
+# render_homepage() is called defensively, the same "matched-set" pattern
+# used everywhere else in this file: instead of assuming homepage.py's
+# render_homepage() accepts exactly these keyword arguments, app.py
+# inspects its ACTUAL signature first and only passes the keywords it
+# really declares (unless it declares **kwargs, in which case everything
+# is passed through). That protects against a NEWER app.py sitting next
+# to an OLDER homepage.py that predates one of these arguments (e.g. a
+# deployment where only app.py got re-uploaded) -- rather than crashing
+# with "TypeError: render_homepage() got an unexpected keyword argument",
+# the older homepage.py just quietly doesn't receive the argument(s) it
+# doesn't know about yet. If render_homepage is missing from homepage.py
+# entirely, or still raises for some other reason, the final try/except
+# below falls back to a minimal, always-safe render rather than a blank
+# crashed page.
 # --------------------------------------------------------------------------
 if st.session_state.view == "home":
-    homepage.render_homepage(
+    _homepage_kwargs = dict(
         city=city, neighborhood=selected_zip["neighborhood"], zip_code=selected_zip["zip"],
         briefing_text=briefing_text, hazard=hazard, aqi_reading=aqi_reading,
         pollen_reading=pollen_reading, pollen_detail=pollen_detail, city_now=city_now,
         symptom_log_count=len(st.session_state.get(SYMPTOM_LOG_KEY, [])),
     )
+    try:
+        import inspect as _inspect
+        _params = _inspect.signature(homepage.render_homepage).parameters
+        _accepts_var_kwargs = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values())
+        if not _accepts_var_kwargs:
+            _homepage_kwargs = {k: v for k, v in _homepage_kwargs.items() if k in _params}
+    except (TypeError, ValueError, AttributeError):
+        # Can't introspect the signature for some reason (including
+        # homepage.py not defining render_homepage AT ALL) -- fall through
+        # and just try the full call below; the except clause there is
+        # still a safety net either way.
+        pass
+    try:
+        homepage.render_homepage(**_homepage_kwargs)
+    except (TypeError, AttributeError):
+        # Last-resort minimal fallback -- an older/mismatched homepage.py
+        # that either doesn't accept this shape or doesn't define
+        # render_homepage at all. Still shows SOMETHING useful (today's
+        # hazard tier in plain text) instead of a crashed blank page.
+        st.markdown(f"## 🫁 {city}")
+        st.markdown(f"**Respiratory hazard today:** {hazard['tier'].upper()} — {hazard['advice']}")
+        st.caption(
+            "Showing a simplified Home page because homepage.py on this deployment doesn't match "
+            "app.py's expected version -- see the README's \"Keep all files in sync\" note."
+        )
+        st.button("🫁 Go to full dashboard", on_click=lambda: st.session_state.update(view="app"))
     st.stop()
 
 # --------------------------------------------------------------------------

@@ -194,7 +194,7 @@ def render_airborne_triggers_card(aqi_reading: dict = None, pollen_reading: dict
 
 def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str = None,
                        hazard: dict = None, aqi_reading: dict = None, pollen_reading: dict = None,
-                       pollen_detail: dict = None, city_now=None):
+                       pollen_detail: dict = None, city_now=None, **_extra_kwargs):
     """The logged-out landing page: a short hero, a two-column split (a
     'get started' auth card next to a compact Respiratory Hazard Score
     snapshot), and the full Dominant Airborne Triggers card. Every
@@ -300,7 +300,7 @@ def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str 
 def render_logged_in(username: str, city: str = None, neighborhood: str = None, zip_code: str = None,
                       briefing_text: str = None, hazard: dict = None, aqi_reading: dict = None,
                       pollen_reading: dict = None, pollen_detail: dict = None, city_now=None,
-                      symptom_log_count: int = 0):
+                      symptom_log_count: int = 0, **_extra_kwargs):
     """Renders the personalized 'Welcome back' dashboard.
 
     Defensive by design: this is called with values computed earlier in
@@ -399,7 +399,7 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
 
 def render_homepage(city=None, neighborhood=None, zip_code=None, briefing_text=None,
                      hazard=None, aqi_reading=None, pollen_reading=None, pollen_detail=None,
-                     city_now=None, symptom_log_count=0):
+                     city_now=None, symptom_log_count=0, **_extra_kwargs):
     """Entry point called from app.py. Branches on login state; the caller
     supplies the SAME hazard/aqi_reading/pollen_reading/pollen_detail
     objects already computed once for the main dashboard, so the homepage
@@ -410,6 +410,19 @@ def render_homepage(city=None, neighborhood=None, zip_code=None, briefing_text=N
     widget keys is queued (accounts.queue_apply_on_next_run) and processed
     at the very top of app.py's NEXT run instead of during this render;
     see that function's docstring for why.
+
+    `**_extra_kwargs` (here and on render_logged_in/render_logged_out
+    above) is a deliberate safety net, NOT dead code: it means a NEWER
+    app.py that starts passing one more keyword argument than THIS
+    homepage.py currently knows about degrades to "that one extra value is
+    quietly ignored" instead of "TypeError: got an unexpected keyword
+    argument, whole Home page crashes." app.py's own call site has the
+    matching half of this fix -- it introspects this function's actual
+    signature before calling, so the reverse mismatch (a NEWER app.py
+    next to an OLDER homepage.py missing a newer parameter entirely) also
+    degrades gracefully instead of crashing. See the README's "Keep all
+    files in sync" note -- updating both files together is still the
+    right long-term fix, this is a safety net, not a substitute for it.
     """
     if accounts.is_logged_in():
         render_logged_in(
