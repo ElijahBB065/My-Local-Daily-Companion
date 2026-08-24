@@ -18,6 +18,134 @@ need re-entering.
 import streamlit as st
 
 import accounts
+import community
+
+
+def _feature_card(icon: str, title: str, body: str):
+    """One card in the logged-out landing page's 3-column feature grid --
+    replaces the old single paragraph of stacked raw text with something
+    that actually looks like a product's feature grid."""
+    st.markdown(
+        f"""
+        <div class="feature-card">
+            <div class="feature-icon">{icon}</div>
+            <div class="feature-title">{title}</div>
+            <div class="feature-body">{body}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _community_preview(city: str, neighborhood: str) -> dict:
+    """A real crowd-reported post for the visitor's own town if one already
+    exists (so a returning visitor sees genuine local activity), or an
+    honestly-labeled example post otherwise -- never a real post dressed up
+    as fake, and never a fake post dressed up as real. Defensive by design:
+    community lookups can fail (bad city/neighborhood, community.py not
+    fully initialized yet on a guest's very first run) without taking the
+    whole Home page down with it.
+    """
+    top = []
+    try:
+        community_id = community.community_id_for(city, neighborhood)
+        if community.get_community(community_id):
+            top = community.top_issues(community_id, n=1)
+    except Exception:
+        top = []
+
+    if top:
+        post = top[0]
+        upvotes = post.get("upvotes", set())
+        count = len(upvotes) if isinstance(upvotes, (set, list, tuple)) else 0
+        return {
+            "badge": "LIVE POST",
+            "category_label": community.CATEGORY_LABELS.get(post.get("category"), "💬 General Town Chat"),
+            "text": post.get("text") or "",
+            "count": count,
+            "author": post.get("author") or "A neighbor",
+        }
+    return {
+        "badge": "EXAMPLE",
+        "category_label": "🛠️ Local Infrastructure Issues",
+        "text": "Elevator at the Main St station has been out since Tuesday — anyone know if it's being fixed?",
+        "count": 12,
+        "author": "Guest-3f8a1",
+    }
+
+
+def _preview_stack(city: str, neighborhood: str, transit_status: dict, aqi_reading: dict, tiers: dict):
+    """Three elevated 'here's what you get' cards shown to a logged-out
+    visitor, right next to the login form -- an AQI reading, a transit
+    delay pill, and a community post. The AQI and transit cards use the
+    SAME already-computed reading app.py hands to the dashboard for
+    whatever city is currently selected in the sidebar, so a guest sees
+    genuinely live numbers, not a mocked-up placeholder, before ever
+    creating an account.
+    """
+    transit_status = transit_status if isinstance(transit_status, dict) else {}
+    aqi_reading = aqi_reading if isinstance(aqi_reading, dict) else {}
+    tiers = tiers if isinstance(tiers, dict) else {}
+    city_label = (city or "your city").split(",")[0] if city else "your city"
+
+    aqi_val = aqi_reading.get("aqi")
+    aqi_color = aqi_reading.get("color") or "#0f766e"
+    st.markdown(
+        f"""
+        <div class="preview-card">
+            <div class="preview-eyebrow">
+                <span>🌬️ Air Quality</span>
+                <span><span class="preview-live-dot"></span>Live · {city_label}</span>
+            </div>
+            <div style="font-size:2.1rem; font-weight:800; color:{aqi_color}; line-height:1;">
+                {aqi_reading.get('emoji', '❔')} {aqi_val if aqi_val is not None else '—'}
+            </div>
+            <div style="font-weight:700; color:#0f172a; margin-top:6px;">{aqi_reading.get('label', 'No data yet')}</div>
+            <div style="font-size:0.82rem; color:#64748b; margin-top:2px;">{neighborhood or city_label}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    level = transit_status.get("level")
+    level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(level, "Checking…")
+    tier = tiers.get("transit") if tiers.get("transit") in ("good", "caution", "hazard") else "caution"
+    outages = transit_status.get("elevator_outages", 0) or 0
+    delay_min = transit_status.get("delay_min")
+    delay_note = f"{delay_min} min avg delay" if delay_min is not None else "Pick a city to see live delays"
+    st.markdown(
+        f"""
+        <div class="preview-card">
+            <div class="preview-eyebrow">
+                <span>🚌 Transit</span>
+                <span><span class="preview-live-dot"></span>Live · {city_label}</span>
+            </div>
+            <span class="delay-pill pill-{tier}">🚌 {level_label}</span>
+            <div style="font-size:0.85rem; color:#64748b; margin-top:10px;">
+                {delay_note} · {outages} elevator outage{'s' if outages != 1 else ''} reported
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    preview = _community_preview(city, neighborhood)
+    st.markdown(
+        f"""
+        <div class="preview-card">
+            <div class="preview-eyebrow">
+                <span>🏘️ Community Hub</span>
+                <span>{preview['badge']}</span>
+            </div>
+            <div style="font-weight:700; color:#0f172a; font-size:0.92rem;">{preview['category_label']}</div>
+            <div style="font-size:0.92rem; color:#334155; margin-top:6px; line-height:1.45;">
+                &ldquo;{preview['text']}&rdquo;
+            </div>
+            <div style="font-size:0.78rem; color:#94a3b8; margin-top:10px;">👍 {preview['count']} · {preview['author']}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _status_tile(label: str, value_str: str, note: str, tier: str = "caution"):
@@ -37,93 +165,144 @@ def _status_tile(label: str, value_str: str, note: str, tier: str = "caution"):
     )
 
 
-def render_logged_out():
+def render_logged_out(city: str = None, neighborhood: str = None, zip_code: str = None,
+                       transit_status: dict = None, aqi_reading: dict = None, pollen_reading: dict = None,
+                       outlook_data: dict = None, city_now=None):
+    """The logged-out landing page: a bold gradient hero card, a two-column
+    split (a styled 'get started' auth card next to a live feature-preview
+    stack), then a three-column feature grid -- replacing the old single
+    banner + wall of text with cards doing the visual work, per the Week 1
+    visual overhaul. Every optional value is normalized defensively, same
+    pattern as render_logged_in below, since a guest can land here before
+    the rest of app.py's "compute once" section has anything meaningful to
+    hand over (e.g. the very first run before a city is even resolved).
+    """
+    outlook_data = outlook_data if isinstance(outlook_data, dict) else {}
+    tiers = outlook_data.get("tiers", {})
+    city_label = (city or "your city").split(",")[0] if city else "your city"
+
     st.markdown(
-        """
+        f"""
         <div class="hero-banner">
-            <h1>🧭 Welcome to Local Daily Companion</h1>
-            <p>Real transit systems, real air-quality math, real U.S. cities — one friendly daily
-            briefing. Sign up to save your city, ZIP, and routes, or jump right in as a guest.</p>
+            <div class="hero-eyebrow">🧭 Local Daily Companion</div>
+            <h1>Your city, decoded every morning.</h1>
+            <p>Real transit systems, real EPA air-quality math, real U.S. cities — one instant
+            daily briefing for {city_label}. Sign up to save your spots and routes, or jump
+            right in as a guest — every feature works either way.</p>
+            <div class="hero-badges">
+                <span class="hero-badge">🚌 18 real transit systems</span>
+                <span class="hero-badge">🌬️ Live EPA air-quality math</span>
+                <span class="hero-badge">🏘️ Local community boards</span>
+                <span class="hero-badge">🔒 Secure, persistent accounts</span>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        """
-        <div class="companion-banner">
-        🚌 <b>Track real transit systems</b> across 18 U.S. cities, plan station-to-station trips,
-        and check elevator/accessibility status &nbsp;·&nbsp;
-        🌬️ <b>Check real air-quality math</b> (EPA's own AQI formula) and a plain-language Asthma
-        Hazard Risk for any ZIP code in a supported metro area &nbsp;·&nbsp;
-        📰 <b>One Daily Briefing</b> that combines both into a single friendly sentence, in your
-        city's own local time.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    col_auth, col_preview = st.columns([1, 1.05], gap="large")
 
-    tab_login, tab_signup, tab_guest = st.tabs(["🔑 Log In", "🆕 Sign Up", "👋 Continue as Guest"])
+    with col_auth:
+        # st.container(border=True) gives us a real, native elevated card
+        # that native widgets (tabs, forms) can sit INSIDE -- unlike a
+        # <div> opened via st.markdown, which can't wrap widgets rendered
+        # by later, separate Streamlit calls. Older Streamlit releases
+        # without the `border` kwarg fall back to a plain container rather
+        # than crashing the whole Home page over a styling nicety.
+        try:
+            auth_box = st.container(border=True)
+        except TypeError:
+            auth_box = st.container()
 
-    with tab_login:
-        with st.form("login_form", clear_on_submit=False):
-            u = st.text_input("Username", key="login_username")
-            p = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Log In", use_container_width=True, type="primary")
-            if submitted:
-                ok, msg = accounts.log_in(u, p)
-                if ok:
-                    # Don't push this account's saved city/ZIP/profile onto
-                    # the sidebar's widget keys HERE -- by the time this
-                    # form's submit code runs, the sidebar (and its
-                    # city/ZIP widgets) has ALREADY rendered earlier in
-                    # this same script run, and Streamlit raises a
-                    # StreamlitAPIException ("... cannot be modified after
-                    # widget ... is instantiated") if you write to a
-                    # widget's session_state key after that widget has
-                    # already been drawn this run. Queuing it instead defers
-                    # the actual write to the very top of app.py's NEXT
-                    # run, before any widget exists yet -- see
-                    # accounts.queue_apply_on_next_run().
-                    #
-                    # (Simpler on_click callbacks are used elsewhere in this
-                    # app for the same ordering hazard -- see user_profile's
-                    # saved-location buttons -- but a login form specifically
-                    # needs to show a conditional success/error message tied
-                    # to this exact submit, which an on_click callback can't
-                    # cleanly render inline. This queue+rerun is the one
-                    # extra step that buys us that inline message.)
-                    accounts.queue_apply_on_next_run(u.strip())
-                    st.session_state["view"] = "home"
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
+        with auth_box:
+            st.markdown("#### Get started")
+            tab_login, tab_signup, tab_guest = st.tabs(["🔑 Log In", "🆕 Sign Up", "👋 Guest"])
 
-    with tab_signup:
-        with st.form("signup_form", clear_on_submit=False):
-            u = st.text_input("Choose a username", key="signup_username")
-            p = st.text_input(
-                "Choose a password", type="password", key="signup_password",
-                help="Demo login only — please never reuse a real password here.",
-            )
-            submitted = st.form_submit_button("Sign Up", use_container_width=True, type="primary")
-            if submitted:
-                ok, msg = accounts.sign_up(u, p)
-                if ok:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
-        st.caption(accounts.storage_mode_label())
+            with tab_login:
+                with st.form("login_form", clear_on_submit=False):
+                    u = st.text_input("Username", key="login_username")
+                    p = st.text_input("Password", type="password", key="login_password")
+                    submitted = st.form_submit_button("Log In", use_container_width=True, type="primary")
+                    if submitted:
+                        ok, msg = accounts.log_in(u, p)
+                        if ok:
+                            # Don't push this account's saved city/ZIP/profile onto
+                            # the sidebar's widget keys HERE -- by the time this
+                            # form's submit code runs, the sidebar (and its
+                            # city/ZIP widgets) has ALREADY rendered earlier in
+                            # this same script run, and Streamlit raises a
+                            # StreamlitAPIException ("... cannot be modified after
+                            # widget ... is instantiated") if you write to a
+                            # widget's session_state key after that widget has
+                            # already been drawn this run. Queuing it instead defers
+                            # the actual write to the very top of app.py's NEXT
+                            # run, before any widget exists yet -- see
+                            # accounts.queue_apply_on_next_run().
+                            #
+                            # (Simpler on_click callbacks are used elsewhere in this
+                            # app for the same ordering hazard -- see user_profile's
+                            # saved-location buttons -- but a login form specifically
+                            # needs to show a conditional success/error message tied
+                            # to this exact submit, which an on_click callback can't
+                            # cleanly render inline. This queue+rerun is the one
+                            # extra step that buys us that inline message.)
+                            accounts.queue_apply_on_next_run(u.strip())
+                            st.session_state["view"] = "home"
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
 
-    with tab_guest:
-        st.write("No account needed — just pick a city and ZIP in the sidebar and go.")
+            with tab_signup:
+                with st.form("signup_form", clear_on_submit=False):
+                    u = st.text_input("Choose a username", key="signup_username")
+                    p = st.text_input(
+                        "Choose a password", type="password", key="signup_password",
+                        help="Real password security (hashed + salted) -- see the README -- but "
+                             "still never reuse a password from a real account here.",
+                    )
+                    submitted = st.form_submit_button("Sign Up", use_container_width=True, type="primary")
+                    if submitted:
+                        ok, msg = accounts.sign_up(u, p)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                st.caption(accounts.storage_mode_label())
 
-        def _go_to_dashboard():
-            st.session_state["view"] = "app"
+            with tab_guest:
+                st.write("No account needed — just pick a city and ZIP in the sidebar and go.")
 
-        st.button("👉 Take me to the dashboard", use_container_width=True, type="primary", on_click=_go_to_dashboard)
+                def _go_to_dashboard():
+                    st.session_state["view"] = "app"
+
+                st.button("👉 Take me to the dashboard", use_container_width=True, type="primary", on_click=_go_to_dashboard)
+
+    with col_preview:
+        _preview_stack(city, neighborhood, transit_status, aqi_reading, tiers)
+
+    st.write("")
+    st.markdown("#### Everything in one place")
+    feat_l, feat_m, feat_r = st.columns(3, gap="medium")
+    with feat_l:
+        _feature_card(
+            "🚌", "Track real transit",
+            "Next arrivals, delay patterns, and elevator/accessibility status across 18 real "
+            "U.S. transit systems, plus a station-to-station trip planner.",
+        )
+    with feat_m:
+        _feature_card(
+            "🌬️", "Real air-quality math",
+            "Live OpenAQ readings where available, EPA's own AQI formula otherwise, and a "
+            "plain-language Asthma Hazard Risk for any ZIP code you type in.",
+        )
+    with feat_r:
+        _feature_card(
+            "📰", "One daily briefing",
+            "Transit, air quality, and pollen rolled into a single friendly sentence and a "
+            "color-coded outlook — always in your city's own local time.",
+        )
 
 
 def render_logged_in(username: str, city: str = None, neighborhood: str = None, zip_code: str = None,
@@ -200,7 +379,7 @@ def render_logged_in(username: str, city: str = None, neighborhood: str = None, 
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4, gap="small")
     with c1:
         level = transit_status.get("level")
         level_label = {"smooth": "Smooth", "minor": "Minor delays", "major": "Major delays"}.get(level, "Unknown")
@@ -271,4 +450,7 @@ def render_homepage(city=None, neighborhood=None, zip_code=None, briefing_text=N
             transit_status, aqi_reading, pollen_reading, outlook_data, city_now,
         )
     else:
-        render_logged_out()
+        render_logged_out(
+            city, neighborhood, zip_code, transit_status, aqi_reading, pollen_reading,
+            outlook_data, city_now,
+        )

@@ -190,34 +190,52 @@ accounts.consume_pending_apply(CITY_KEY, ZIP_KEY, PROFILE_KEY_PREFIX, ZIP_CITY_C
 user_profile.consume_pending_location(CITY_KEY, ZIP_KEY, ZIP_CITY_CONTEXT_KEY)
 
 # --------------------------------------------------------------------------
-# Styling -- a calmer, transit-map-inspired light backdrop with crisp white
-# cards floating on top of it. The background texture is two very faint
-# repeating diagonal line sets (a nod to overlapping subway lines on a
-# system map) rather than a flat white page -- subtle enough to disappear
-# once real content is on screen, but enough to keep the page from feeling
-# like a bare form.
+# Styling -- a clean, modern "web app" system: a soft off-white/slate canvas
+# with crisp, elevated white cards floating on top of it, one consistent
+# pill-shaped button/tab language, and a bold deep-slate-to-emerald gradient
+# reserved for the handful of "look here first" moments (the hero banner,
+# the outlook banner, primary buttons). Shared tokens (--card-border,
+# --card-shadow, --card-radius, --accent-grad) keep every card/button across
+# every page speaking the same visual language instead of a per-page
+# one-off style, which is what keeps a hand-built app from reading as a
+# pile of mismatched Streamlit defaults.
 # --------------------------------------------------------------------------
 st.markdown(
     """
     <style>
     .stApp {
-        background-color: #eef1f6;
-        background-image:
-            repeating-linear-gradient(120deg, rgba(42,120,214,0.05) 0px, rgba(42,120,214,0.05) 1.5px, transparent 1.5px, transparent 46px),
-            repeating-linear-gradient(60deg, rgba(27,175,122,0.045) 0px, rgba(27,175,122,0.045) 1.5px, transparent 1.5px, transparent 64px),
-            repeating-linear-gradient(0deg, rgba(74,58,167,0.03) 0px, rgba(74,58,167,0.03) 1.5px, transparent 1.5px, transparent 80px);
+        --card-border: #E2E8F0;
+        --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        --card-radius: 16px;
+        --accent-grad: linear-gradient(120deg, #0f172a 0%, #0f766e 55%, #10b981 100%);
+        background: linear-gradient(180deg, #F8FAFC 0%, #EDF2F7 100%);
         background-attachment: fixed;
     }
     .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1180px; }
-    h1, h2, h3 { letter-spacing: -0.01em; }
+    h1, h2, h3 { letter-spacing: -0.01em; color: #0f172a; }
 
     /* -- Consistent button/input/divider rhythm across every page -- one
        shared shape language instead of each widget using Streamlit's raw
-       defaults, so the whole app reads as one designed product. -- */
+       defaults, so the whole app reads as one designed product. Buttons are
+       pill-shaped with a soft lift-and-glow on hover; primaryColor in
+       .streamlit/config.toml drives the vibrant emerald fill on "primary"
+       buttons (Log In, Sign Up, Save, etc.) so we don't have to chase
+       Streamlit's internal button markup across versions with CSS. -- */
     .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
-        border-radius: 10px;
-        font-weight: 600;
-        padding: 0.5rem 1rem;
+        border-radius: 999px;
+        font-weight: 700;
+        padding: 0.55rem 1.35rem;
+        border-color: var(--card-border);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.14);
+        filter: brightness(1.04);
+    }
+    .stButton > button:active, .stDownloadButton > button:active, .stFormSubmitButton > button:active {
+        transform: translateY(0);
+        filter: brightness(0.98);
     }
     div[data-testid="stTextInput"] input,
     div[data-testid="stTextArea"] textarea,
@@ -225,30 +243,115 @@ st.markdown(
         border-radius: 10px !important;
     }
     hr { margin: 0.7rem 0 !important; opacity: 0.14; }
-    div[data-testid="stExpander"] { border-radius: 14px; }
-    div[data-testid="column"] { padding: 0 8px; }
-
-    /* -- Branding banner (Home page, and other lightweight headers) -- */
-    .hero-banner {
-        background: linear-gradient(120deg, #2a78d6 0%, #4a3aa7 55%, #1baf7a 100%);
-        border-radius: 16px;
-        padding: 22px 28px;
-        margin-bottom: 20px;
-        color: #ffffff;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+    div[data-testid="stExpander"] {
+        border-radius: var(--card-radius);
+        border: 1px solid var(--card-border) !important;
+        box-shadow: var(--card-shadow);
     }
-    .hero-banner h1 { color: #ffffff; margin-bottom: 4px; font-size: 1.9rem; }
-    .hero-banner p { color: rgba(255,255,255,0.92); margin: 0; font-size: 1rem; }
+    div[data-testid="column"] { padding: 0 8px; }
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: var(--card-radius) !important;
+        box-shadow: var(--card-shadow);
+    }
+
+    /* -- Pill-style tabs (Log In / Sign Up / Continue as Guest, and the
+       Transit / Air Quality / Community Hub tabs) instead of Streamlit's
+       plain underlined default. -- */
+    div[data-baseweb="tab-list"] {
+        gap: 6px;
+        background: #eef2f7;
+        padding: 6px;
+        border-radius: 999px;
+        border: 1px solid var(--card-border);
+    }
+    div[data-baseweb="tab"] {
+        border-radius: 999px !important;
+        padding: 8px 20px !important;
+        font-weight: 700;
+    }
+    div[data-baseweb="tab-highlight"] { background: transparent !important; }
+    div[data-baseweb="tab"][aria-selected="true"] {
+        background: #ffffff;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }
+
+    /* -- Branding hero card (Home page, and other lightweight headers) --
+       deep slate fading into a vibrant emerald/teal accent, large callout
+       type, and a row of structured badge tags underneath the tagline. -- */
+    .hero-banner {
+        background: var(--accent-grad);
+        border-radius: 22px;
+        padding: 34px 38px;
+        margin-bottom: 22px;
+        color: #ffffff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
+    }
+    .hero-banner .hero-eyebrow {
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em;
+        font-weight: 800; color: rgba(255,255,255,0.75); margin-bottom: 10px;
+    }
+    .hero-banner h1 { color: #ffffff; margin-bottom: 10px; font-size: 2.5rem; line-height: 1.12; font-weight: 800; }
+    .hero-banner p { color: rgba(255,255,255,0.92); margin: 0; font-size: 1.08rem; max-width: 640px; line-height: 1.55; }
+    .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .hero-badge {
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(255,255,255,0.3);
+        color: #ffffff;
+        padding: 7px 16px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+    }
+
+    /* -- Elevated "feature preview" cards (Home page, logged-out) -- */
+    .preview-card {
+        background: #ffffff;
+        border: 1px solid var(--card-border);
+        border-radius: var(--card-radius);
+        box-shadow: var(--card-shadow);
+        padding: 18px 20px;
+        margin-bottom: 14px;
+    }
+    .preview-eyebrow {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+        font-weight: 800; color: #64748b; margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .preview-live-dot {
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        background: #10b981; margin-right: 5px; box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
+    }
+    .delay-pill {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 16px; border-radius: 999px; font-weight: 700; font-size: 0.95rem;
+    }
+    .pill-good    { background: rgba(16,185,129,0.12); color: #067a55; }
+    .pill-caution { background: rgba(240,162,2,0.14); color: #8a5a00; }
+    .pill-hazard  { background: rgba(185,28,28,0.12); color: #b91c1c; }
+
+    .feature-card {
+        background: #ffffff;
+        border: 1px solid var(--card-border);
+        border-radius: var(--card-radius);
+        box-shadow: var(--card-shadow);
+        padding: 20px 20px;
+        min-height: 148px;
+    }
+    .feature-card .feature-icon { font-size: 1.5rem; margin-bottom: 8px; }
+    .feature-card .feature-title { font-weight: 800; font-size: 1.02rem; color: #0f172a; margin-bottom: 6px; }
+    .feature-card .feature-body { font-size: 0.88rem; color: #475569; line-height: 1.5; }
 
     /* -- The "Aha" outlook banner -- the very first thing on the dashboard,
        color-coded by today's overall verdict (see outlook.py). Colors are
        set inline per-render via style="background:...;color:...", these
        rules just handle layout/shape. -- */
     .outlook-banner {
-        border-radius: 18px;
-        padding: 26px 30px;
+        border-radius: 22px;
+        padding: 28px 32px;
         margin-bottom: 18px;
-        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
     }
     .outlook-banner .outlook-eyebrow {
         font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.09em;
@@ -260,11 +363,11 @@ st.markdown(
 
     /* -- Vivid, color-coded status tiles (Transit / AQI / Pollen) -- */
     .status-tile {
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 18px 20px;
         min-height: 132px;
         margin-bottom: 12px;
-        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.10);
+        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
     }
     .status-tile .tile-label {
         font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.06em;
@@ -278,108 +381,110 @@ st.markdown(
 
     .briefing-card {
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.06);
-        border-radius: 16px;
-        padding: 16px 22px;
+        border: 1px solid var(--card-border);
+        border-radius: var(--card-radius);
+        padding: 18px 24px;
         margin-bottom: 16px;
-        box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06);
+        box-shadow: var(--card-shadow);
     }
     .briefing-card .briefing-label {
         font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
-        color: #52514e; font-weight: 700; margin-bottom: 4px;
+        color: #64748b; font-weight: 700; margin-bottom: 4px;
     }
-    .briefing-card .briefing-text { font-size: 1.1rem; font-weight: 600; color: #0b0b0b; line-height: 1.4; }
-    .briefing-card .briefing-time { font-size: 0.78rem; color: #898781; margin-top: 6px; }
+    .briefing-card .briefing-text { font-size: 1.1rem; font-weight: 600; color: #0f172a; line-height: 1.4; }
+    .briefing-card .briefing-time { font-size: 0.78rem; color: #94a3b8; margin-top: 6px; }
 
-    .alerts-heading { font-size: 1rem; font-weight: 700; color: #0b0b0b; margin: 4px 0 8px 0; }
+    .alerts-heading { font-size: 1rem; font-weight: 700; color: #0f172a; margin: 4px 0 8px 0; }
     .alert-card {
         background: color-mix(in srgb, var(--accent, #898781) 9%, #ffffff);
-        border: 1px solid rgba(15,23,42,0.06);
+        border: 1px solid var(--card-border);
         border-left: 6px solid var(--accent, #898781);
-        border-radius: 14px;
+        border-radius: var(--card-radius);
         padding: 12px 18px;
         margin-bottom: 10px;
-        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+        box-shadow: var(--card-shadow);
     }
-    .alert-card .alert-top { font-weight: 700; font-size: 0.98rem; color: #0b0b0b; }
-    .alert-card .alert-body { font-size: 0.88rem; color: #33322f; margin-top: 4px; line-height: 1.5; }
+    .alert-card .alert-top { font-weight: 700; font-size: 0.98rem; color: #0f172a; }
+    .alert-card .alert-body { font-size: 0.88rem; color: #334155; margin-top: 4px; line-height: 1.5; }
 
     .companion-banner {
-        background: #eef4fc;
-        border: 1px solid rgba(42,120,214,0.2);
-        border-radius: 14px;
-        padding: 12px 18px;
+        background: #ffffff;
+        border: 1px solid var(--card-border);
+        border-radius: var(--card-radius);
+        padding: 14px 20px;
         margin-bottom: 16px;
-        color: #0b0b0b;
+        color: #0f172a;
         font-size: 0.92rem;
         line-height: 1.5;
+        box-shadow: var(--card-shadow);
     }
 
     .metric-card {
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.07);
+        border: 1px solid var(--card-border);
         border-left: 5px solid var(--accent, #898781);
-        border-radius: 14px;
-        padding: 14px 18px;
+        border-radius: var(--card-radius);
+        padding: 16px 20px;
         margin-bottom: 12px;
         min-height: 108px;
-        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+        box-shadow: var(--card-shadow);
     }
-    .metric-card .mc-label { font-size: 0.75rem; color: #52514e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; font-weight: 700; }
-    .metric-card .mc-value { font-size: 1.65rem; font-weight: 800; color: #0b0b0b; line-height: 1.15; }
-    .metric-card .mc-note { font-size: 0.8rem; color: #52514e; margin-top: 6px; }
+    .metric-card .mc-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; font-weight: 700; }
+    .metric-card .mc-value { font-size: 1.65rem; font-weight: 800; color: #0f172a; line-height: 1.15; }
+    .metric-card .mc-note { font-size: 0.8rem; color: #64748b; margin-top: 6px; }
 
     .transit-card {
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.06);
-        border-left: 6px solid var(--accent, #2a78d6);
-        border-radius: 14px;
-        padding: 12px 18px;
+        border: 1px solid var(--card-border);
+        border-left: 6px solid var(--accent, #0f766e);
+        border-radius: var(--card-radius);
+        padding: 14px 20px;
         margin-bottom: 10px;
-        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+        box-shadow: var(--card-shadow);
     }
-    .transit-card .tc-top { display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem; color: #0b0b0b; }
-    .transit-card .tc-eta { color: #2a78d6; font-weight: 800; }
-    .transit-card .tc-station { font-size: 0.95rem; color: #0b0b0b; margin-top: 2px; }
-    .transit-card .tc-meta { font-size: 0.82rem; color: #52514e; margin-top: 6px; }
+    .transit-card .tc-top { display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem; color: #0f172a; }
+    .transit-card .tc-eta { color: #0f766e; font-weight: 800; }
+    .transit-card .tc-station { font-size: 0.95rem; color: #0f172a; margin-top: 2px; }
+    .transit-card .tc-meta { font-size: 0.82rem; color: #64748b; margin-top: 6px; }
 
     .aqi-hero {
         background: #ffffff;
-        border: 2px solid var(--accent, #2a78d6);
-        border-radius: 18px;
-        padding: 20px 26px;
+        border: 1px solid var(--card-border);
+        border-top: 4px solid var(--accent, #0f766e);
+        border-radius: var(--card-radius);
+        padding: 22px 26px;
         margin-bottom: 16px;
         text-align: center;
-        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.07);
+        box-shadow: var(--card-shadow);
     }
-    .aqi-hero .aqi-hero-value { font-size: 3rem; font-weight: 800; color: var(--accent, #0b0b0b); line-height: 1; }
-    .aqi-hero .aqi-hero-label { font-size: 1.15rem; font-weight: 700; color: #0b0b0b; margin-top: 6px; }
-    .aqi-hero .aqi-hero-sub { font-size: 0.88rem; color: #52514e; margin-top: 4px; }
+    .aqi-hero .aqi-hero-value { font-size: 3rem; font-weight: 800; color: var(--accent, #0f172a); line-height: 1; }
+    .aqi-hero .aqi-hero-label { font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-top: 6px; }
+    .aqi-hero .aqi-hero-sub { font-size: 0.88rem; color: #64748b; margin-top: 4px; }
 
     .risk-card {
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.07);
+        border: 1px solid var(--card-border);
         border-left: 6px solid var(--accent, #898781);
-        border-radius: 14px;
-        padding: 14px 20px;
+        border-radius: var(--card-radius);
+        padding: 16px 20px;
         margin: 14px 0 6px 0;
-        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+        box-shadow: var(--card-shadow);
     }
-    .risk-card .risk-top { font-size: 1.1rem; color: #0b0b0b; margin-bottom: 4px; }
-    .risk-card .risk-advice { font-size: 0.92rem; color: #33322f; line-height: 1.5; }
+    .risk-card .risk-top { font-size: 1.1rem; color: #0f172a; margin-bottom: 4px; }
+    .risk-card .risk-advice { font-size: 0.92rem; color: #334155; line-height: 1.5; }
 
     .report-card {
         background: #ffffff;
-        border: 1px solid rgba(15,23,42,0.06);
+        border: 1px solid var(--card-border);
         border-left: 5px solid var(--accent, #898781);
-        border-radius: 14px;
-        padding: 10px 16px;
+        border-radius: var(--card-radius);
+        padding: 12px 18px;
         margin-bottom: 8px;
-        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+        box-shadow: var(--card-shadow);
     }
-    .report-card .rc-top { display: flex; justify-content: space-between; font-weight: 600; color: #0b0b0b; }
-    .report-card .rc-details { font-size: 0.85rem; color: #33322f; margin-top: 4px; }
-    .report-card .rc-meta { font-size: 0.75rem; color: #898781; margin-top: 6px; }
+    .report-card .rc-top { display: flex; justify-content: space-between; font-weight: 600; color: #0f172a; }
+    .report-card .rc-details { font-size: 0.85rem; color: #334155; margin-top: 4px; }
+    .report-card .rc-meta { font-size: 0.75rem; color: #94a3b8; margin-top: 6px; }
     </style>
     """,
     unsafe_allow_html=True,

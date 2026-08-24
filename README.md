@@ -255,6 +255,57 @@ feedback to persist and reach you automatically, the natural upgrade is to
 have `submit_feedback()` write into the same SQLite database `accounts.py`
 already sets up (one more small table), rather than only `st.session_state`.
 
+## 🎨 The Home page: a modern web-app landing page
+
+The logged-out Home page was rebuilt from a plain banner-plus-stacked-text
+layout into a proper landing page, using only Streamlit's own `st.columns`,
+`st.tabs`, and `st.container(border=True)` plus one shared CSS system in
+`app.py` — no extra front-end framework or JS.
+
+- **Hero card.** A large, rounded gradient card (deep slate fading into a
+  vibrant emerald/teal — `--accent-grad` in `app.py`'s CSS) with bold
+  callout type and a row of structured badge tags ("18 real transit
+  systems," "Live EPA air-quality math," "Local community boards,"
+  "Secure, persistent accounts") replaces the old plain single-line banner.
+- **Two-column "get started" layout.** A styled, elevated card (a real
+  `st.container(border=True)`, not just a background image) holds the Log
+  In / Sign Up / Guest tabs on the left; a stack of three live preview
+  cards sits on the right.
+- **Live feature previews, not mockups.** The air-quality and transit
+  preview cards show the *exact same* already-computed reading for
+  whatever city is currently selected in the sidebar — the same
+  `transit_status`/`aqi_reading` app.py hands to the full dashboard — so a
+  guest sees genuinely live numbers before creating an account, not
+  placeholder data. The community preview card shows a real top post from
+  the visitor's own town if one already exists (labeled "LIVE POST"), or
+  an honestly-labeled "EXAMPLE" post otherwise — it never dresses up a
+  fake post as real, or a real one as fake.
+- **Three-column feature grid.** The old single paragraph of stacked
+  feature bullets is now three elevated cards (Transit / Air Quality /
+  Daily Briefing), each with an icon, a bold title, and one line of body
+  copy.
+- **One consistent card + button system, everywhere.** A soft off-white
+  canvas gradient (`#F8FAFC` → `#EDF2F7`) replaces the previous
+  transit-line background texture; every card across every page (the
+  Home page, the Dashboard's status tiles and briefing card, the Community
+  Hub's post and digest cards) now shares the same white background,
+  `#E2E8F0` border, 16px radius, and soft drop shadow; every button is
+  pill-shaped with a smooth lift-and-glow hover animation; and
+  `.streamlit/config.toml`'s `primaryColor` now matches the new emerald
+  accent, so Streamlit's own "primary" button styling (Log In, Sign Up,
+  Save) stays in sync with the rest of the design without fragile
+  version-specific CSS selectors chasing Streamlit's internal button
+  markup.
+- **Pill-style tabs.** The Log In / Sign Up / Guest tabs (and the Transit /
+  Air Quality / Community Hub dashboard tabs) now render as a rounded pill
+  switcher instead of Streamlit's default underlined tab strip.
+
+`st.container(border=True)` needs a reasonably recent Streamlit
+(`requirements.txt` already pins `streamlit>=1.43`, well past when this
+landed); if an older Streamlit is ever installed instead, the auth card
+falls back to a plain, unbordered container rather than crashing the Home
+page over a styling nicety.
+
 ## Does this use TODAY's real date/time — in the right city's timezone?
 
 Yes, and this is the one area that got a real fix worth calling out. Earlier
@@ -854,3 +905,17 @@ further hardcoded last-resort city dict beneath it, on the principle that
 a fallback which can itself throw isn't actually a fallback. All 8 test
 files (covering every pass described in this README) were re-run clean
 together immediately before this delivery.*
+
+*The Home page visual overhaul got a ninth dedicated test file on top of
+all of the above. It confirmed `render_logged_out()` survives being called
+with every argument missing (the very first run's shape, before a city is
+even resolved) and with deliberately wrong types (a string where a dict
+was expected, a list where a dict was expected) without crashing; that
+`_community_preview()` correctly falls back to an honestly-labeled
+"EXAMPLE" post when the visitor's town has no community yet, and correctly
+surfaces a real "LIVE POST" (with the real author and text) once one
+exists; that the new preview stack renders cleanly for all 18 cities with
+both realistic and empty/malformed data; and that the full `app.py` Home
+view — hero card, two-column auth/preview layout, and three-column feature
+grid together — runs clean across all 18 cities for a logged-out visitor.
+All 9 test files were re-run together immediately before this delivery.*
